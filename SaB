@@ -1,0 +1,186 @@
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local PathfindingService = game:GetService("PathfindingService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- Настройки
+local HOTKEY_START = Enum.KeyCode.G
+local HOTKEY_STOP = Enum.KeyCode.H
+
+local isWalking = false
+local visualPathParts = {} -- Таблица для хранения наших красных линий
+
+-- Функция для очистки старых линий
+local function clearVisualPath()
+    for _, part in ipairs(visualPathParts) do
+        if part and part.Parent then
+            part:Destroy()
+        end
+    end
+    visualPathParts = {}
+end
+
+-- Функция для отрисовки линии между двумя 3D точками
+local function drawLine(p1, p2)
+    local part = Instance.new("Part")
+    part.Name = "PathLine"
+    part.Anchored = true
+    part.CanCollide = false -- Чтобы линии не мешали ходить
+    part.Material = Enum.Material.Neon
+    part.Color = Color3.fromRGB(255, 0, 0) -- Ярко-красный цвет
+    part.Size = Vector3.new(0.3, 0.3, 0.3) -- Временный размер
+    
+    -- Вычисляем дистанцию и центр между двумя точками
+    local distance = (p2 - p1).Magnitude
+    local midpoint = p1 + (p2 - p1) / 2
+    
+    -- Устанавливаем позицию в центре и поворачиваем от p1 к p2
+    part.CFrame = CFrame.lookAt(midpoint, p2)
+    
+    -- Растягиваем деталь по оси Z (вперед) на длину дистанции
+    part.Size = Vector3.new(0.3, 0.3, distance)
+    
+    part.Parent = workspace
+    table.insert(visualPathParts, part)
+end
+
+-- Функция для поиска участка текущего игрока
+local function findMyPlot()
+    local plotsFolder = workspace:FindFirstChild("Plots")
+    if not plotsFolder then return nil end
+
+    for _, plot in ipairs(plotsFolder:GetChildren()) do
+        local ps = plot:FindFirstChild("PlotSign")
+        if ps and ps:FindFirstChild("SurfaceGui") and ps.SurfaceGui:FindFirstChild("Frame") then
+            local tl = ps.SurfaceGui.Frame:FindFirstChild("TextLabel")
+            if tl then
+                local ot = tl.Text:gsub("^%s*(.-)%s*$", "%1")
+                if string.find(ot:lower(), LocalPlayer.Name:lower()) or ot == LocalPlayer.Name or string.find(ot, LocalPlayer.DisplayName or "") then
+                    return plot
+                end
+            end
+        end
+
+        local ownerVal = plot:FindFirstChild("owner") or plot:FindFirstChild("Owner")
+        if ownerVal and (ownerVal.Value == LocalPlayer or ownerVal.Value == LocalPlayer.Name) then
+            return plot
+        end
+    end
+    return nil
+end
+
+local function walkToPlotHitbox()
+    if isWalking then return end
+    isWalking = true
+    
+    -- Очищаем старый путь перед началом нового
+    clearVisualPath()
+    
+    local character = LocalPlayer.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not humanoid then 
+        isWalking = false 
+        return 
+    end
+
+    local myPlot = findMyPlot()
+    if not myPlot then
+        warn("[PathDebug] Ваш участок не найден!")
+        isWalking = false
+        return
+    end
+
+    local hitbox = myPlot:FindFirstChild("Purchases") and myPlot.Purchases:FindFirstChild("PlotBlock") and myPlot.Purchases.PlotBlock:FindFirstChild("Hitbox")
+    if not hitbox then
+        warn("[PathDebug] Хитбокс не найден!")
+        isWalking = false
+        return
+    end
+
+    local targetPos = hitbox:IsA("BasePart") and hitbox.CFrame.Position or hitbox.Position
+
+    local path = PathfindingService:CreatePath({
+        AgentRadius = 2.5,
+        AgentHeight = 5,
+        AgentCanJump = true,
+        WaypointSpacing = 4
+    })
+
+    local success, errorMessage = pcall(function()
+        path:ComputeAsync(hrp.Position, targetPos)
+    end)
+
+    if not success or path.Status ~= Enum.PathStatus.Success then
+        warn("[PathDebug] Путь не найден!")
+        isWalking = false
+        return
+    end
+
+    local waypoints = path:GetWaypoints()
+    print("[PathDebug] Путь построен. Точек маршрута: " .. #waypoints)
+
+    -- ОТРИСОВКА ПУТИ
+    -- Рисуем линии от позиции игрока до первой точки
+    if #waypoints > 0 then
+        drawLine(hrp.Position, waypoints[1].Position)
+    end
+    -- Рисуем линии между остальными точками
+    for i = 1, #waypoints - 1 do
+        drawLine(waypoints[i].Position, waypoints[i+1].Position)
+    end
+
+    -- ДВИЖЕНИЕ ПО ПУТИ
+    for i, waypoint in ipairs(waypoints) do
+        if not isWalking then 
+            print("[PathDebug] Ходьба прервана.")
+            break 
+        end
+
+        if waypoint.Action == Enum.PathWaypointAction.Jump then
+            humanoid.Jump = true
+        end
+
+        humanoid:MoveTo(waypoint.Position)
+        
+        local reached = humanoid.MoveToFinished:Wait()
+        
+        if not reached then
+            warn("[PathDebug] Застрял на точке " .. i)
+            break
+        end
+    end
+
+    -- Убираем линии, когда дошли или остановились
+    clearVisualPath()
+    isWalking = false
+    print("[PathDebug] Маршрут завершен.")
+end
+
+local function stopWalking()
+    if isWalking then
+        print("[PathDebug] Принудительная остановка...")
+        isWalking = false
+        local character = LocalPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        if humanoid and hrp then
+            humanoid:MoveTo(hrp.Position)
+        end
+        -- Убираем линии при ручной остановке
+        clearVisualPath()
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == HOTKEY_START then
+        walkToPlotHitbox()
+    elseif input.KeyCode == HOTKEY_STOP then
+        stopWalking()
+    end
+end)
+
+print("[PathDebug] Скрипт загружен. G - идти (с визуализацией), H - стоп.")
