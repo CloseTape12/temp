@@ -1,0 +1,67 @@
+local Packet = require(game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"))
+local CollectFruit = Packet("CollectFruit")
+local player = game:GetService("Players").LocalPlayer
+
+-- Ждём появления GUI (на случай, если он загружается не сразу)
+local gui = player.PlayerGui:WaitForChild("TeleportButtons"):WaitForChild("TeleportButtons"):WaitForChild("GardenButton", 10)
+if not gui then
+    warn("Кнопка GardenButton не найдена!")
+    return
+end
+
+-- Быстрое "нажатие" кнопки через событие Activated
+firesignal(gui.Activated)
+print("Телепортация в сад активирована. Ожидаю загрузку грядок...")
+task.wait(2)  -- пауза на телепорт и появление растений
+
+-- Функция получения всех активных фруктов (с HarvestPrompt)
+local function getActiveFruits()
+    local fruits = {}
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj.Name == "HarvestPrompt" and obj:IsA("ProximityPrompt") and obj.Enabled then
+            local harvestPart = obj.Parent
+            if harvestPart then
+                local fruit = harvestPart.Parent
+                if fruit then
+                    table.insert(fruits, fruit)
+                end
+            end
+        end
+    end
+    return fruits
+end
+
+-- Извлекаем UUID растения и плода из имени Fruit (формат: IDигрока_растениеUUID_плодUUID)
+local function parseUUIDs(fruitName)
+    local parts = {}
+    for part in string.gmatch(fruitName, "[^_]+") do
+        table.insert(parts, part)
+    end
+    if #parts >= 3 then
+        return parts[2], parts[3]  -- растение, плод
+    end
+    return nil, nil
+end
+
+local fruits = getActiveFruits()
+print("Найдено активных плодов: " .. #fruits)
+
+if #fruits == 0 then
+    warn("Плодов нет. Возможно, вы ещё не в саду или они не загрузились.")
+    return
+end
+
+local harvested = 0
+for i, fruit in ipairs(fruits) do
+    local plantUUID, fruitUUID = parseUUIDs(fruit.Name)
+    if plantUUID and fruitUUID then
+        print(string.format("[%d/%d] Собираю: растение=%s, плод=%s", i, #fruits, plantUUID, fruitUUID))
+        CollectFruit:Fire(plantUUID, fruitUUID)
+        harvested = harvested + 1
+        task.wait(0.15)  -- небольшая задержка, чтобы не спамить
+    else
+        print("Не удалось разобрать UUID из имени: " .. fruit.Name)
+    end
+end
+
+print("Готово! Отправлено запросов на сбор: " .. harvested)
