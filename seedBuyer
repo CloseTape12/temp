@@ -1,0 +1,115 @@
+-- ==================== КОНФИГУРАЦИЯ ====================
+local buyConfig = {
+    ["Buy Seed"] = {
+        ["Enable"] = true,   -- false = полностью отключить покупку
+        ["Seed"] = {
+            ["Bamboo"]          = true,   -- $10
+            ["Blueberry"]       = true,   -- $25
+            ["Tulip"]           = true,   -- $40
+            ["Apple"]           = true,   -- $50
+            ["Tomato"]          = false,  -- $200
+            ["Banana"]          = true,  -- $1K
+            ["Sunflower"]       = true,  -- $1K
+            ["Corn"]            = false,  -- $2.5K
+            ["Mushroom"]        = true,  -- $15K
+            ["Cherry"]          = false,  -- $30K
+            ["Mango"]           = false,  -- $35K
+            ["Grape"]           = false,  -- $50K
+            ["Coconut"]         = false,  -- $70K
+            ["Cactus"]          = false,  -- $100K
+            ["Baby Cactus"]     = false,  -- $100K
+            ["Pomegranate"]     = false,  -- $200K
+            ["Pineapple"]       = false,  -- $250K
+            ["Dragon Fruit"]    = false,  -- $500K
+            ["Poison Apple"]    = false,  -- $1M
+            ["Moon Bloom"]      = false,  -- $1M
+            ["Poison Ivy"]      = false,  -- $1M
+            ["Ghost Pepper"]    = false,  -- $1M
+            ["Venus Fly Trap"]  = false,  -- $5M
+            ["Dragon's Breath"] = false,  -- $10M
+        },
+    },
+}
+-- ====================================================
+
+-- Проверка общего Enable
+if not buyConfig["Buy Seed"]["Enable"] then
+    warn("Покупка семян отключена в конфиге (Enable = false).")
+    return
+end
+
+local Packet = require(game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"))
+local PurchaseSeed = Packet("PurchaseSeed")
+local player = game:GetService("Players").LocalPlayer
+
+-- Кнопка телепорта в магазин
+local seedsButton = player.PlayerGui:WaitForChild("TeleportButtons"):WaitForChild("TeleportButtons"):WaitForChild("SeedsButton", 10)
+if not seedsButton then
+    warn("Кнопка SeedsButton не найдена!")
+    return
+end
+
+-- Переход в магазин
+firesignal(seedsButton.Activated)
+print("Перехожу в магазин семян...")
+
+-- Ждём появления NormalShop
+local normalShop = nil
+for _ = 1, 20 do
+    task.wait(0.5)
+    local seedShop = player.PlayerGui:FindFirstChild("SeedShop")
+    if seedShop then
+        local frame = seedShop:FindFirstChild("Frame")
+        if frame then
+            normalShop = frame:FindFirstChild("NormalShop")
+            if normalShop then break end
+        end
+    end
+end
+
+if not normalShop then
+    warn("Интерфейс NormalShop не загрузился. Убедитесь, что вы в магазине семян.")
+    return
+end
+
+print("Магазин загружен. Сканирую наличие...")
+
+local seedList = buyConfig["Buy Seed"]["Seed"]
+local totalPurchased = 0
+
+-- Перебираем все дочерние объекты NormalShop (каждый соответствует одному семени)
+for _, seedFrame in ipairs(normalShop:GetChildren()) do
+    local seedName = seedFrame.Name
+    if seedList[seedName] == true then
+        local mainFrame = seedFrame:FindFirstChild("Main_Frame")
+        if mainFrame then
+            local stockText = mainFrame:FindFirstChild("Stock_Text")
+            if stockText and stockText:IsA("TextLabel") then
+                local rawText = stockText.Text
+                -- Извлекаем число после 'x' (например, "x2 in Stock" → 2)
+                local qty = string.match(rawText, "x(%d+)")
+                if qty then
+                    qty = tonumber(qty)
+                else
+                    qty = 0
+                end
+                if qty > 0 then
+                    print(string.format("Покупаю %s x%d ...", seedName, qty))
+                    for i = 1, qty do
+                        PurchaseSeed:Fire(seedName)
+                        totalPurchased = totalPurchased + 1
+                        task.wait(0.25)
+                    end
+                else
+                    print(string.format("%s: нет в наличии (текст: '%s')", seedName, rawText))
+                end
+            else
+                print(string.format("%s: не найден Stock_Text", seedName))
+            end
+        else
+            print(string.format("%s: не найден Main_Frame", seedName))
+        end
+    end
+end
+
+print("Готово! Всего куплено семян: " .. totalPurchased)
