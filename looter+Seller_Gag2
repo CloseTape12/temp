@@ -1,21 +1,52 @@
-local Packet = require(game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"))
-local CollectFruit = Packet("CollectFruit")
-local SellAll = Packet("SellAll")
-local player = game:GetService("Players").LocalPlayer
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
--- Кнопки GUI
-local gardenBtn = player.PlayerGui:WaitForChild("TeleportButtons"):WaitForChild("TeleportButtons"):WaitForChild("GardenButton", 10)
-local sellBtn = player.PlayerGui:WaitForChild("TeleportButtons"):WaitForChild("TeleportButtons"):WaitForChild("SellButton", 10)
+local LocalPlayer = Players.LocalPlayer
 
-if not gardenBtn or not sellBtn then
-    warn("Не найдены обе кнопки телепорта!")
-    return
+-- ==========================================
+-- 1. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
+-- ==========================================
+local function teleportToStart()
+    -- Ждем, пока персонаж и его главная часть (HumanoidRootPart) прогрузятся
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    
+    -- Ждем появления объекта телепортации в Workspace
+    local targetPart = Workspace:WaitForChild("Gardens"):WaitForChild("Plot1"):WaitForChild("Visual"):WaitForChild("PRIM")
+    
+    -- Телепортируем персонажа (с небольшим смещением вверх, чтобы не застрять в текстуре)
+    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+    print("Телепорт к Plot1 выполнен!")
 end
 
--- Функции для сбора
+teleportToStart()
+
+-- ==========================================
+-- 2. ОСНОВНАЯ ЛОГИКА (СБОР И ПРОДАЖА)
+-- ==========================================
+local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
+local CollectFruit = Packet("CollectFruit")
+local SellAll = Packet("SellAll")
+
+-- Функция для безопасного получения текущего количества плодов в инвентаре
+local function getFruitCount()
+    local success, result = pcall(function()
+        return LocalPlayer.PlayerGui.BackpackGui.Backpack.Inventory.FruitInventory.Text
+    end)
+    
+    if success and result then
+        local countStr = string.match(result, "(%d+)")
+        if countStr then
+            return tonumber(countStr)
+        end
+    end
+    return 0
+end
+
 local function getActiveFruits()
     local fruits = {}
-    for _, obj in ipairs(workspace:GetDescendants()) do
+    for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj.Name == "HarvestPrompt" and obj:IsA("ProximityPrompt") and obj.Enabled then
             local harvestPart = obj.Parent
             if harvestPart then
@@ -34,46 +65,42 @@ local function parseUUIDs(fruitName)
     for part in string.gmatch(fruitName, "[^_]+") do
         table.insert(parts, part)
     end
-    if #parts >= 3 then
-        return parts[2], parts[3]
-    end
-    return nil, nil
+    return parts[2], parts[3] or ""
 end
 
--- === НАЧАЛО ЦИКЛА ===
+print("Авто-сборщик запущен. Сканирование огорода...")
+
 while true do
-    print("=== Начинаю цикл сбора ===")
+    -- Проверяем инвентарь и продаём, если заполнен
+    local fruitCount = getFruitCount()
+    if fruitCount >= 100 then
+        print("Инвентарь заполнен (" .. fruitCount .. "/100). Авто-продажа...")
+        SellAll:Fire()
+        task.wait(1)
+    end
 
-    -- 1. Телепорт в сад
-    firesignal(gardenBtn.Activated)
-    print("Телепорт в сад...")
-    task.wait(2)  -- время на загрузку грядок
-
-    -- 2. Сбор фруктов
+    -- Сканируем и собираем плоды
     local fruits = getActiveFruits()
-    print("Найдено плодов: " .. #fruits)
-
     local harvested = 0
-    for i, fruit in ipairs(fruits) do
+
+    for _, fruit in ipairs(fruits) do
         local plantUUID, fruitUUID = parseUUIDs(fruit.Name)
-        if plantUUID and fruitUUID then
-            print(string.format("[%d/%d] Собираю: %s", i, #fruits, fruitUUID))
+        if plantUUID then
+            -- Проверка перед сбором, чтобы не пытаться собрать сверх лимита
+            if getFruitCount() >= 100 then
+                SellAll:Fire()
+                task.wait(1)
+            end
+            
             CollectFruit:Fire(plantUUID, fruitUUID)
             harvested = harvested + 1
-            task.wait(0.15)
+            task.wait(0.1)
         end
     end
-    print("Собрано: " .. harvested)
 
-    -- 3. Телепорт к рынку и продажа
-    firesignal(sellBtn.Activated)
-    print("Телепорт к рынку...")
-    task.wait(2)  -- время на перемещение
+    if harvested > 0 then
+        print("Собрано за этот проход: " .. harvested)
+    end
 
-    print("Продаю всё...")
-    SellAll:Fire()
-    task.wait(1)  -- даём серверу обработать продажу
-
-    print("Цикл завершён. Жду 5 минут до следующего сбора...")
-    task.wait(300)  -- интервал между полными циклами (можно менять)
+    task.wait(1) 
 end
