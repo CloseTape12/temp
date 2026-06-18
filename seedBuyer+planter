@@ -1,0 +1,322 @@
+-- ==================== КОНФИГУРАЦИЯ ====================
+local config = {
+    ["Buy Seed"] = {
+        ["Enable"] = true,
+        ["Seed"] = {
+            ["Carrot"]          = true,
+            ["Strawberry"]      = true,
+            ["Blueberry"]       = true,
+            ["Tulip"]           = true,
+            ["Tomato"]          = true,
+            ["Apple"]           = true,
+            ["Bamboo"]          = true,
+            ["Corn"]            = true,
+            ["Cactus"]          = true,
+            ["Pineapple"]       = true,
+            ["Mushroom"]        = true,
+            ["Green Beam"]      = true,
+            ["Banana"]          = true,
+            ["Grape"]           = true,
+            ["Coconut"]         = true,
+            ["Mango"]           = true,
+            ["Dragon Fruit"]    = true,
+            ["Acorn"]           = true,
+            ["Cherry"]          = true,
+            ["Sunflower"]       = true,
+            ["Venus Fly Trap"]  = true,
+            ["Pomegranate"]     = true,
+            ["Poison Apple"]    = true,
+            ["Moon Bloom"]      = true,
+            ["Dragon's Breath"] = true,
+        },
+    },
+    
+    ["Plant Seed"] = {
+        ["Enable"] = true,
+        ["Seed"] = {
+            ["Gold"]            = false,
+            ["Carrot"]          = true,
+            ["Strawberry"]      = false,
+            ["Blueberry"]       = false,
+            ["Tulip"]           = true,
+            ["Tomato"]          = true,
+            ["Apple"]           = true,
+            ["Bamboo"]          = true,
+            ["Corn"]            = true,
+            ["Cactus"]          = true,
+            ["Pineapple"]       = true,
+            ["Mushroom"]        = true,
+            ["Green Beam"]      = true,
+            ["Banana"]          = true,
+            ["Grape"]           = true,
+            ["Coconut"]         = true,
+            ["Mango"]           = true,
+            ["Dragon Fruit"]    = true,
+            ["Acorn"]           = false,
+            ["Cherry"]          = false,
+            ["Sunflower"]       = false,
+            ["Venus Fly Trap"]  = false,
+            ["Pomegranate"]     = false,
+            ["Poison Apple"]    = false,
+            ["Moon Bloom"]      = false,
+            ["Dragon's Breath"] = false,
+        },
+    },
+}
+-- ====================================================
+
+if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] then return end
+
+local player = game:GetService("Players").LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
+
+local PurchaseSeed = Packet("PurchaseSeed")
+local PlantSeed = Packet("PlantSeed")
+local SellAll = Packet("SellAll")
+
+-- === НАСТРОЙКА СЕТКИ ВРУЧНУЮ ===
+local START_POS = Vector3.new(420.00, 142.35, -181.55) -- ВСТАВЬ СЮДА СВОИ КООРДИНАТЫ
+local SPACING = 1  -- Отступ между растениями
+local MAX_ROWS = 115 -- Сколько рядов по оси X
+local MAX_COLS = 70 -- Сколько растений в ряду по оси Z
+
+local currentX = START_POS.X
+local currentZ = START_POS.Z
+local targetY = START_POS.Y
+local colCount = 0
+local rowCount = 0
+
+-- Функция для продвижения сетки
+local function advanceGrid()
+    currentZ = currentZ + SPACING
+    colCount = colCount + 1
+    if colCount >= MAX_COLS then
+        colCount = 0
+        currentZ = START_POS.Z
+        currentX = currentX + SPACING
+        rowCount = rowCount + 1
+        if rowCount >= MAX_ROWS then
+            rowCount = 0
+            currentX = START_POS.X
+            print("♻️ Сетка заполнена. Начинаем заново.")
+        end
+    end
+end
+
+-- Функция проверки, занята ли точка посадки
+local function isPositionOccupied(pos)
+    local params = OverlapParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    
+    -- Исключаем персонажа и саму землю (папку Visual), чтобы находить только растения
+    local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
+    local visualFolder = plot1 and plot1:FindFirstChild("Visual")
+    
+    if visualFolder then
+        params.FilterDescendantsInstances = {player.Character, visualFolder}
+    else
+        params.FilterDescendantsInstances = {player.Character}
+    end
+    
+    -- Проверяем куб 1х1х1 вокруг точки посадки
+    local boxCFrame = CFrame.new(pos + Vector3.new(0, 1, 0))
+    local boxSize = Vector3.new(SPACING, 2, SPACING)
+    local partsInBox = workspace:GetPartBoundsInBox(boxCFrame, boxSize, params)
+    
+    -- Если нашли хоть одну деталь (не землю и не игрока), значит место занято растением
+    return #partsInBox > 0
+end
+
+-- Функция получения следующей СВОБОДНОЙ точки для посадки
+local function getNextPlantPosition()
+    local pos = Vector3.new(currentX, targetY, currentZ)
+    local skips = 0
+    
+    -- Если место занято, пропускаем его (максимум 100 пропусков, чтобы не зависнуть намертво)
+    while isPositionOccupied(pos) and skips < 100 do
+        skips += 1
+        advanceGrid()
+        pos = Vector3.new(currentX, targetY, currentZ)
+    end
+    
+    -- Нашли свободное место, сдвигаем сетку для следующего вызова
+    advanceGrid()
+    return pos
+end
+
+local buyList = config["Buy Seed"]["Seed"]
+local plantList = config["Plant Seed"]["Seed"]
+
+local totalPurchased = 0
+local totalPlanted = 0
+
+-- === ФУНКЦИЯ СКАНИРОВАНИЯ ИНВЕНТАРЯ ===
+local function getInventorySeeds()
+    local seedsToPlant = {}
+    local backpack = player:FindFirstChild("Backpack")
+    if not backpack then return seedsToPlant end
+
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") then
+            local mainCat = item:GetAttribute("MainCategory")
+            local seedName = item:GetAttribute("SeedTool")
+            local count = item:GetAttribute("Count")
+            
+            if not mainCat then
+                local mcObj = item:FindFirstChild("MainCategory")
+                if mcObj and mcObj:IsA("StringValue") then mainCat = mcObj.Value end
+            end
+            if not seedName then
+                local stObj = item:FindFirstChild("SeedTool")
+                if stObj and stObj:IsA("StringValue") then seedName = stObj.Value end
+            end
+            if not count then
+                local cObj = item:FindFirstChild("Count")
+                if cObj and (cObj:IsA("IntValue") or cObj:IsA("NumberValue")) then count = cObj.Value end
+            end
+
+            if mainCat == "Seed" and seedName and count and count > 0 then
+                table.insert(seedsToPlant, {tool = item, name = seedName, count = count})
+            end
+        end
+    end
+    return seedsToPlant
+end
+
+-- === ФУНКЦИЯ ПОЛУЧЕНИЯ КОЛИЧЕСТВА ПЛОДОВ (ДЛЯ ПРОДАЖИ) ===
+local function getFruitCount()
+    local success, result = pcall(function()
+        return player.PlayerGui.BackpackGui.Backpack.Inventory.FruitInventory.Text
+    end)
+    if success and result then
+        local countStr = string.match(result, "(%d+)")
+        if countStr then return tonumber(countStr) end
+    end
+    return 0
+end
+
+
+-- === ПРОЦЕСС 1: ПОСАДКА ===
+task.spawn(function()
+    if not config["Plant Seed"]["Enable"] then return end
+    print("🌱 Авто-посадка запущена. Сканирую инвентарь...")
+
+    while true do
+        local seeds = getInventorySeeds()
+        local plantedThisCycle = false
+        
+        for _, seedData in ipairs(seeds) do
+            if plantList[seedData.name] == true then
+                print(string.format("🌱 Найдено в инвентаре: %s x%d. Сажаю...", seedData.name, seedData.count))
+                
+                for i = 1, seedData.count do
+                    if not seedData.tool or not seedData.tool.Parent then break end
+                    
+                    -- Проверяем актуальное количество семян прямо перед посадкой
+                    local liveCount = 0
+                    local cObj = seedData.tool:FindFirstChild("Count")
+                    if cObj and (cObj:IsA("IntValue") or cObj:IsA("NumberValue")) then
+                        liveCount = cObj.Value
+                    else
+                        local attr = seedData.tool:GetAttribute("Count")
+                        if attr then liveCount = attr end
+                    end
+                    
+                    -- Если семена кончились, прекращаем попытки посадить этот вид
+                    if liveCount <= 0 then break end
+
+                    local pos = getNextPlantPosition()
+                    PlantSeed:Fire(pos, seedData.name, seedData.tool)
+                    totalPlanted = totalPlanted + 1
+                    plantedThisCycle = true
+                    task.wait(0.3)
+                end
+            end
+        end
+        
+        if plantedThisCycle then
+            print(string.format("✅ Цикл посадки завершен. Всего посажено: %d", totalPlanted))
+        end
+        task.wait(2) 
+    end
+end)
+
+-- === ПРОЦЕСС 2: ПОКУПКА ===
+task.spawn(function()
+    if not config["Buy Seed"]["Enable"] then return end
+
+    local function getNormalShop()
+        local seedShop = player.PlayerGui:FindFirstChild("SeedShop")
+        if seedShop then
+            local frame = seedShop:FindFirstChild("Frame")
+            if frame then
+                return frame:FindFirstChild("NormalShop")
+            end
+        end
+        return nil
+    end
+
+    print("🔍 Динамический сканер магазина запущен. Ожидаю появления семян...")
+
+    while true do
+        local normalShop = getNormalShop()
+        
+        if normalShop then
+            local boughtThisCycle = false
+            
+            for _, seedFrame in ipairs(normalShop:GetChildren()) do
+                local seedName = seedFrame.Name
+                if buyList[seedName] == true then
+                    local mainFrame = seedFrame:FindFirstChild("Main_Frame")
+                    if mainFrame then
+                        local stockText = mainFrame:FindFirstChild("Stock_Text")
+                        if stockText and stockText:IsA("TextLabel") then
+                            local qty = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
+                            
+                            if qty > 0 then
+                                print(string.format("🛒 Найдено в наличии: %s x%d. Покупаю...", seedName, qty))
+                                boughtThisCycle = true
+                                
+                                for i = 1, qty do
+                                    PurchaseSeed:Fire(seedName)
+                                    totalPurchased = totalPurchased + 1
+                                    task.wait(0.2)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            
+            if boughtThisCycle then
+                print(string.format("✅ Цикл покупки завершен. Всего куплено: %d", totalPurchased))
+            end
+        else
+            print("⏳ Окно магазина закрыто. Жду открытия...")
+        end
+        
+        task.wait(5) 
+    end
+end)
+
+-- === ПРОЦЕСС 3: АВТО-ПРОДАЖА ===
+task.spawn(function()
+    print("💰 Авто-продажа запущена...")
+    while true do
+        local fruitCount = getFruitCount()
+        
+        if fruitCount >= 100 then
+            print("🚨 Инвентарь заполнен (" .. fruitCount .. "/100). Экстренная продажа!")
+            SellAll:Fire()
+            task.wait(0.5) 
+        elseif fruitCount > 0 then
+            print("💰 Периодическая продажа (" .. fruitCount .. "/100)...")
+            SellAll:Fire()
+            task.wait(5) 
+        else
+            task.wait(1)
+        end
+    end
+end)
