@@ -34,10 +34,10 @@ local config = {
     ["Plant Seed"] = {
         ["Enable"] = true,
         ["Seed"] = {
-            ["Gold"]            = true,
+            ["Gold"]            = false,
             ["Carrot"]          = true,
-            ["Strawberry"]      = true,
-            ["Blueberry"]       = true,
+            ["Strawberry"]      = false,
+            ["Blueberry"]       = false,
             ["Tulip"]           = true,
             ["Tomato"]          = true,
             ["Apple"]           = true,
@@ -95,21 +95,18 @@ teleportToStart()
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ И ПЕРЕМЕННЫЕ
 -- ==========================================
--- Вставь координаты двух противоположных углов грядки
-local CORNER_1 = Vector3.new(420.00, 142.35, -181.55) -- Например, левый верхний угол
-local CORNER_2 = Vector3.new(435.20, 142.35, -82.40) -- Например, правый нижний угол
+local CORNER_1 = Vector3.new(420.00, 142.35, -181.55) -- 1 УГОЛ ГРЯДКИ
+local CORNER_2 = Vector3.new(434.20, 142.35, -82.40) -- 2 УГОЛ ГРЯДКИ
 local SPACING = 0.1   -- Отступ между растениями
 
 -- Скрипт сам вычисляет края зоны посадки
 local startX = math.min(CORNER_1.X, CORNER_2.X)
 local endX = math.max(CORNER_1.X, CORNER_2.X)
-
 local startZ = math.min(CORNER_1.Z, CORNER_2.Z)
 local endZ = math.max(CORNER_1.Z, CORNER_2.Z)
+local targetY = CORNER_1.Y 
 
-local targetY = CORNER_1.Y -- Высота берется из первой точки
-
--- Скрипт сам высчитывает количество рядов и колонок на основе расстояния и отступа
+-- Скрипт сам высчитывает количество рядов и колонок
 local MAX_COLS = math.floor((endZ - startZ) / SPACING) + 1
 local MAX_ROWS = math.floor((endX - startX) / SPACING) + 1
 
@@ -120,7 +117,6 @@ local rowCount = 0
 
 local dynamicBlacklist = {}
 
--- Функция продвижения сетки теперь использует реальные границы
 local function advanceGrid()
     currentZ = currentZ + SPACING
     colCount = colCount + 1
@@ -164,6 +160,12 @@ local function getNextPlantPosition()
     advanceGrid()
     return pos
 end
+
+-- Безопасное получение списков из конфига (защита от ошибок)
+local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
+local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
+local totalPurchased = 0
+local totalPlanted = 0
 
 -- ==========================================
 -- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -256,6 +258,7 @@ task.spawn(function()
         local plantedThisCycle = false
         
         for _, seedData in ipairs(seeds) do
+            -- Безопасная проверка: true в конфиге И НЕ в черном списке
             if plantList[seedData.name] == true and not dynamicBlacklist[seedData.name] then
                 for i = 1, seedData.count do
                     if not seedData.tool or not seedData.tool.Parent then break end
@@ -298,18 +301,21 @@ task.spawn(function()
         local normalShop = getNormalShop()
         if normalShop then
             for _, seedFrame in ipairs(normalShop:GetChildren()) do
-                local seedName = seedFrame.Name
-                if buyList[seedName] == true then
-                    local mainFrame = seedFrame:FindFirstChild("Main_Frame")
-                    if mainFrame then
-                        local stockText = mainFrame:FindFirstChild("Stock_Text")
-                        if stockText and stockText:IsA("TextLabel") then
-                            local qty = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
-                            if qty > 0 then
-                                for i = 1, qty do
-                                    PurchaseSeed:Fire(seedName)
-                                    totalPurchased = totalPurchased + 1
-                                    task.wait(0.2)
+                -- ВАЖНО: Игнорируем системные скрипты (GenerateItems и т.д.), читаем только Frame
+                if seedFrame:IsA("Frame") then 
+                    local seedName = seedFrame.Name
+                    if buyList[seedName] == true then
+                        local mainFrame = seedFrame:FindFirstChild("Main_Frame")
+                        if mainFrame then
+                            local stockText = mainFrame:FindFirstChild("Stock_Text")
+                            if stockText and stockText:IsA("TextLabel") then
+                                local qty = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
+                                if qty > 0 then
+                                    for i = 1, qty do
+                                        PurchaseSeed:Fire(seedName)
+                                        totalPurchased = totalPurchased + 1
+                                        task.wait(0.2)
+                                    end
                                 end
                             end
                         end
@@ -373,18 +379,18 @@ task.spawn(function()
         local coins = getCoins()
         dynamicBlacklist = {}
 
-        if coins > 500000 then
+        if coins > 250000 then
             dynamicBlacklist["Carrot"] = true
             dynamicBlacklist["Strawberry"] = true
             dynamicBlacklist["Blueberry"] = true
             dynamicBlacklist["Tulip"] = true
         end
-        if coins > 1000000 then
+        if coins > 500000 then
             dynamicBlacklist["Tomato"] = true
             dynamicBlacklist["Apple"] = true
             dynamicBlacklist["Corn"] = true
         end
-        if coins > 2000000 then
+        if coins > 1000000 then
             dynamicBlacklist["Cactus"] = true
             dynamicBlacklist["Pineapple"] = true
             dynamicBlacklist["Green Bean"] = true
