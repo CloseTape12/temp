@@ -95,31 +95,44 @@ teleportToStart()
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ И ПЕРЕМЕННЫЕ
 -- ==========================================
-local START_POS = Vector3.new(420.00, 142.35, -181.55) -- КООРДИНАТЫ СЕТКИ
+-- Вставь координаты двух противоположных углов грядки
+local CORNER_1 = Vector3.new(420.00, 142.35, -181.55) -- Например, левый верхний угол
+local CORNER_2 = Vector3.new(435.20, 142.35, -82.40) -- Например, правый нижний угол
 local SPACING = 0.1   -- Отступ между растениями
-local MAX_ROWS = 10000  -- Сколько рядов по оси X
-local MAX_COLS = 1000   -- Сколько растений в ряду по оси Z
 
-local currentX = START_POS.X
-local currentZ = START_POS.Z
-local targetY = START_POS.Y
+-- Скрипт сам вычисляет края зоны посадки
+local startX = math.min(CORNER_1.X, CORNER_2.X)
+local endX = math.max(CORNER_1.X, CORNER_2.X)
+
+local startZ = math.min(CORNER_1.Z, CORNER_2.Z)
+local endZ = math.max(CORNER_1.Z, CORNER_2.Z)
+
+local targetY = CORNER_1.Y -- Высота берется из первой точки
+
+-- Скрипт сам высчитывает количество рядов и колонок на основе расстояния и отступа
+local MAX_COLS = math.floor((endZ - startZ) / SPACING) + 1
+local MAX_ROWS = math.floor((endX - startX) / SPACING) + 1
+
+local currentX = startX
+local currentZ = startZ
 local colCount = 0
 local rowCount = 0
 
 local dynamicBlacklist = {}
 
+-- Функция продвижения сетки теперь использует реальные границы
 local function advanceGrid()
     currentZ = currentZ + SPACING
     colCount = colCount + 1
     if colCount >= MAX_COLS then
         colCount = 0
-        currentZ = START_POS.Z
+        currentZ = startZ
         currentX = currentX + SPACING
         rowCount = rowCount + 1
         if rowCount >= MAX_ROWS then
             rowCount = 0
-            currentX = START_POS.X
-            print("♻️ Сетка заполнена. Начинаем заново.")
+            currentX = startX
+            print("♻️ Зона посадки заполнена. Начинаем заново.")
         end
     end
 end
@@ -143,7 +156,7 @@ end
 local function getNextPlantPosition()
     local pos = Vector3.new(currentX, targetY, currentZ)
     local skips = 0
-    while isPositionOccupied(pos) and skips < 100 do
+    while isPositionOccupied(pos) and skips < (MAX_ROWS * MAX_COLS) do
         skips += 1
         advanceGrid()
         pos = Vector3.new(currentX, targetY, currentZ)
@@ -151,11 +164,6 @@ local function getNextPlantPosition()
     advanceGrid()
     return pos
 end
-
-local buyList = config["Buy Seed"]["Seed"]
-local plantList = config["Plant Seed"]["Seed"]
-local totalPurchased = 0
-local totalPlanted = 0
 
 -- ==========================================
 -- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
