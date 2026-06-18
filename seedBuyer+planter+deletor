@@ -34,10 +34,10 @@ local config = {
     ["Plant Seed"] = {
         ["Enable"] = true,
         ["Seed"] = {
-            ["Gold"]            = false,
+            ["Gold"]            = true,
             ["Carrot"]          = true,
-            ["Strawberry"]      = false,
-            ["Blueberry"]       = false,
+            ["Strawberry"]      = true,
+            ["Blueberry"]       = true,
             ["Tulip"]           = true,
             ["Tomato"]          = true,
             ["Apple"]           = true,
@@ -75,13 +75,30 @@ local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForCh
 local PurchaseSeed = Packet("PurchaseSeed")
 local PlantSeed = Packet("PlantSeed")
 local SellAll = Packet("SellAll")
-local UseShovel = Packet("UseShovel") -- Пакет для удаления растений
+local UseShovel = Packet("UseShovel")
+local CollectFruit = Packet("CollectFruit")
 
--- === НАСТРОЙКА СЕТКИ ВРУЧНУЮ ===
-local START_POS = Vector3.new(420.00, 142.35, -181.55) -- ВСТАВЬ СЮДА СВОИ КООРДИНАТЫ
+-- ==========================================
+-- 1. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
+-- ==========================================
+local function teleportToStart()
+    local character = player.Character or player.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart")
+    
+    local targetPart = Workspace:WaitForChild("Gardens"):WaitForChild("Plot1"):WaitForChild("Visual"):WaitForChild("PRIM")
+    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
+    print("📍 Телепорт к Plot1 выполнен!")
+end
+
+teleportToStart()
+
+-- ==========================================
+-- 2. НАСТРОЙКА СЕТКИ И ПЕРЕМЕННЫЕ
+-- ==========================================
+local START_POS = Vector3.new(420.00, 142.35, -181.55) -- КООРДИНАТЫ СЕТКИ
 local SPACING = 0.1   -- Отступ между растениями
-local MAX_ROWS = 115 -- Сколько рядов по оси X
-local MAX_COLS = 70 -- Сколько растений в ряду по оси Z
+local MAX_ROWS = 10000  -- Сколько рядов по оси X
+local MAX_COLS = 1000   -- Сколько растений в ряду по оси Z
 
 local currentX = START_POS.X
 local currentZ = START_POS.Z
@@ -89,7 +106,6 @@ local targetY = START_POS.Y
 local colCount = 0
 local rowCount = 0
 
--- Динамический черный список (обновляется в зависимости от монет)
 local dynamicBlacklist = {}
 
 local function advanceGrid()
@@ -138,11 +154,12 @@ end
 
 local buyList = config["Buy Seed"]["Seed"]
 local plantList = config["Plant Seed"]["Seed"]
-
 local totalPurchased = 0
 local totalPlanted = 0
 
--- === ФУНКЦИИ СКАНИРОВАНИЯ ===
+-- ==========================================
+-- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+-- ==========================================
 local function getInventorySeeds()
     local seedsToPlant = {}
     local backpack = player:FindFirstChild("Backpack")
@@ -193,21 +210,45 @@ local function getCoins()
     return success and result or 0
 end
 
+local function getActiveFruits()
+    local fruits = {}
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj.Name == "HarvestPrompt" and obj:IsA("ProximityPrompt") and obj.Enabled then
+            local harvestPart = obj.Parent
+            if harvestPart then
+                local fruit = harvestPart.Parent
+                if fruit then
+                    table.insert(fruits, fruit)
+                end
+            end
+        end
+    end
+    return fruits
+end
 
--- === ПРОЦЕСС 1: ПОСАДКА ===
+local function parseFruitUUIDs(fruitName)
+    local parts = {}
+    for part in string.gmatch(fruitName, "[^_]+") do
+        table.insert(parts, part)
+    end
+    return parts[2], parts[3] or ""
+end
+
+
+-- ==========================================
+-- 4. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
+-- ==========================================
+
+-- ПРОЦЕСС 1: ПОСАДКА
 task.spawn(function()
     if not config["Plant Seed"]["Enable"] then return end
-    print("🌱 Авто-посадка запущена. Сканирую инвентарь...")
-
+    print("🌱 Авто-посадка запущена...")
     while true do
         local seeds = getInventorySeeds()
         local plantedThisCycle = false
         
         for _, seedData in ipairs(seeds) do
-            -- Проверяем: разрешено ли сажать в конфиге И НЕ находится ли семя в черном списке
             if plantList[seedData.name] == true and not dynamicBlacklist[seedData.name] then
-                print(string.format("🌱 Найдено в инвентаре: %s x%d. Сажаю...", seedData.name, seedData.count))
-                
                 for i = 1, seedData.count do
                     if not seedData.tool or not seedData.tool.Parent then break end
                     local liveCount = 0
@@ -228,15 +269,11 @@ task.spawn(function()
                 end
             end
         end
-        
-        if plantedThisCycle then
-            print(string.format("✅ Цикл посадки завершен. Всего посажено: %d", totalPlanted))
-        end
         task.wait(2) 
     end
 end)
 
--- === ПРОЦЕСС 2: ПОКУПКА ===
+-- ПРОЦЕСС 2: ПОКУПКА
 task.spawn(function()
     if not config["Buy Seed"]["Enable"] then return end
     local function getNormalShop()
@@ -248,12 +285,10 @@ task.spawn(function()
         return nil
     end
 
-    print("🔍 Динамический сканер магазина запущен. Ожидаю появления семян...")
-
+    print("🔍 Сканер магазина запущен...")
     while true do
         local normalShop = getNormalShop()
         if normalShop then
-            local boughtThisCycle = false
             for _, seedFrame in ipairs(normalShop:GetChildren()) do
                 local seedName = seedFrame.Name
                 if buyList[seedName] == true then
@@ -263,8 +298,6 @@ task.spawn(function()
                         if stockText and stockText:IsA("TextLabel") then
                             local qty = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
                             if qty > 0 then
-                                print(string.format("🛒 Найдено в наличии: %s x%d. Покупаю...", seedName, qty))
-                                boughtThisCycle = true
                                 for i = 1, qty do
                                     PurchaseSeed:Fire(seedName)
                                     totalPurchased = totalPurchased + 1
@@ -275,45 +308,41 @@ task.spawn(function()
                     end
                 end
             end
-            if boughtThisCycle then
-                print(string.format("✅ Цикл покупки завершен. Всего куплено: %d", totalPurchased))
-            end
-        else
-            print("⏳ Окно магазина закрыто. Жду открытия...")
         end
         task.wait(5) 
     end
 end)
 
--- === ПРОЦЕСС 3: АВТО-ПРОДАЖА ===
+-- ПРОЦЕСС 3: АВТО-ПРОДАЖА
 task.spawn(function()
     print("💰 Авто-продажа запущена...")
+    local lastSellTime = 0
     while true do
         local fruitCount = getFruitCount()
+        local currentTime = os.clock()
+        
         if fruitCount >= 100 then
-            print("🚨 Инвентарь заполнен (" .. fruitCount .. "/100). Экстренная продажа!")
+            print("🚨 Инвентарь заполнен. Экстренная продажа!")
             SellAll:Fire()
             task.wait(0.5) 
-        elseif fruitCount > 0 then
-            print("💰 Периодическая продажа (" .. fruitCount .. "/100)...")
+        elseif fruitCount > 0 and (currentTime - lastSellTime >= 5) then
+            print("💰 Периодическая продажа...")
             SellAll:Fire()
-            task.wait(5) 
+            lastSellTime = currentTime
+            task.wait(1)
         else
             task.wait(1)
         end
     end
 end)
 
--- === ПРОЦЕСС 4: ДИНАМИЧЕСКОЕ УДАЛЕНИЕ ПО БАЛАНСУ ===
+-- ПРОЦЕСС 4: ДИНАМИЧЕСКОЕ УДАЛЕНИЕ ПО БАЛАНСУ
 task.spawn(function()
-    print("🗑️ Система контроля баланса и удаления запущена...")
-    
-    -- Функция экипировки лопаты (из твоего скрипта)
+    print("🗑️ Система удаления запущена...")
     local function equipShovel()
         local char = player.Character
         if not char then return nil end
         local hum = char:FindFirstChild("Humanoid")
-
         local shovel = char:FindFirstChild("Shovel")
         if shovel and shovel:IsA("Tool") then return shovel end
 
@@ -334,49 +363,39 @@ task.spawn(function()
 
     while true do
         local coins = getCoins()
-        dynamicBlacklist = {} -- Очищаем список перед каждой проверкой
+        dynamicBlacklist = {}
 
-        -- Формируем черный список в зависимости от монет
-        if coins > 250000 then
+        if coins > 500000 then
             dynamicBlacklist["Carrot"] = true
             dynamicBlacklist["Strawberry"] = true
             dynamicBlacklist["Blueberry"] = true
             dynamicBlacklist["Tulip"] = true
         end
-        if coins > 500000 then
+        if coins > 1000000 then
             dynamicBlacklist["Tomato"] = true
             dynamicBlacklist["Apple"] = true
             dynamicBlacklist["Corn"] = true
         end
-        if coins > 1000000 then
+        if coins > 2000000 then
             dynamicBlacklist["Cactus"] = true
             dynamicBlacklist["Pineapple"] = true
             dynamicBlacklist["Green Bean"] = true
         end
 
-        -- Сканируем грядку и удаляем растения из черного списка
         local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
         local plantsFolder = plot1 and plot1:FindFirstChild("Plants")
         
         if plantsFolder then
-            local hasPlantsToDelete = false
-            
             for _, plant in ipairs(plantsFolder:GetChildren()) do
-                -- Узнаем название семени
                 local seedName = plant:GetAttribute("SeedName")
                 if not seedName then
                     local val = plant:FindFirstChild("SeedName")
                     if val and val:IsA("StringValue") then seedName = val.Value end
                 end
 
-                -- Если растение в черном списке — удаляем его
                 if seedName and dynamicBlacklist[seedName] then
-                    hasPlantsToDelete = true
-                    
-                    -- Экипируем лопату (если еще не экипирована)
                     local shovel = equipShovel()
                     if shovel then
-                        -- Вычисляем ID растения по логике из твоего скрипта
                         local parts = {}
                         for part in string.gmatch(plant.Name, "[^_]+") do
                             table.insert(parts, part)
@@ -384,17 +403,38 @@ task.spawn(function()
                         if #parts >= 2 then
                             local plantId = parts[1] .. "_" .. parts[2]
                             UseShovel:Fire(plantId, "", "Shovel", shovel)
-                            print("🗑️ Удалено растение: " .. seedName .. " (Баланс: " .. coins .. ")")
-                            task.wait(2) -- Задержка 2 секунды из твоего скрипта
+                            task.wait(2)
                         end
                     else
-                        warn("⚠️ Лопата не найдена для удаления растений!")
-                        break -- Прерываем цикл, нет смысла спамить, если лопаты нет
+                        break
                     end
                 end
             end
         end
-        
-        task.wait(3) -- Проверяем баланс и грядку раз в 3 секунды
+        task.wait(3) 
+    end
+end)
+
+-- ПРОЦЕСС 5: АВТО-СБОР ПЛОДОВ
+task.spawn(function()
+    print("🍎 Авто-сборщик плодов запущен...")
+    while true do
+        local fruits = getActiveFruits()
+        local harvested = 0
+
+        for _, fruit in ipairs(fruits) do
+            local plantUUID, fruitUUID = parseFruitUUIDs(fruit.Name)
+            if plantUUID then
+                CollectFruit:Fire(plantUUID, fruitUUID)
+                harvested = harvested + 1
+                task.wait(0.1)
+            end
+        end
+
+        if harvested > 0 then
+            print("🍎 Собрано плодов: " .. harvested)
+        end
+
+        task.wait(1) 
     end
 end)
