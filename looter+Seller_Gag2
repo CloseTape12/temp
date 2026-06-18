@@ -8,14 +8,11 @@ local LocalPlayer = Players.LocalPlayer
 -- 1. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
 -- ==========================================
 local function teleportToStart()
-    -- Ждем, пока персонаж и его главная часть (HumanoidRootPart) прогрузятся
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local hrp = character:WaitForChild("HumanoidRootPart")
     
-    -- Ждем появления объекта телепортации в Workspace
     local targetPart = Workspace:WaitForChild("Gardens"):WaitForChild("Plot1"):WaitForChild("Visual"):WaitForChild("PRIM")
     
-    -- Телепортируем персонажа (с небольшим смещением вверх, чтобы не застрять в текстуре)
     hrp.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
     print("Телепорт к Plot1 выполнен!")
 end
@@ -70,28 +67,29 @@ end
 
 print("Авто-сборщик запущен. Сканирование огорода...")
 
+-- Настройки продажи
+local SELL_INTERVAL = 5 -- Интервал продажи в секундах
+local lastSellTime = 0  -- Время последней продажи
+
 while true do
-    -- Проверяем инвентарь и продаём, если заполнен
+    -- 1. Проверяем инвентарь и продаём раз в 5 секунд
     local fruitCount = getFruitCount()
-    if fruitCount >= 100 then
-        print("Инвентарь заполнен (" .. fruitCount .. "/100). Авто-продажа...")
+    local currentTime = os.clock()
+    
+    if fruitCount > 0 and (currentTime - lastSellTime >= SELL_INTERVAL) then
+        print("Авто-продажа (раз в " .. SELL_INTERVAL .. " сек). В инвентаре: " .. fruitCount)
         SellAll:Fire()
-        task.wait(1)
+        lastSellTime = currentTime -- Обновляем время продажи
+        task.wait(1) -- Ждем 1 секунду, чтобы сервер обработал продажу и очистил инвентарь
     end
 
-    -- Сканируем и собираем плоды
+    -- 2. Сканируем и собираем плоды
     local fruits = getActiveFruits()
     local harvested = 0
 
     for _, fruit in ipairs(fruits) do
         local plantUUID, fruitUUID = parseUUIDs(fruit.Name)
         if plantUUID then
-            -- Проверка перед сбором, чтобы не пытаться собрать сверх лимита
-            if getFruitCount() >= 100 then
-                SellAll:Fire()
-                task.wait(1)
-            end
-            
             CollectFruit:Fire(plantUUID, fruitUUID)
             harvested = harvested + 1
             task.wait(0.1)
@@ -102,5 +100,6 @@ while true do
         print("Собрано за этот проход: " .. harvested)
     end
 
+    -- Задержка между полными проверками огорода
     task.wait(1) 
 end
