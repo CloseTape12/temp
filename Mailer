@@ -1,0 +1,103 @@
+-- ==================== КОНФИГУРАЦИЯ ====================
+local RECIPIENT_ID = 10460326170   -- кому отправлять
+local CATEGORY = "All"            -- "Fruits", "Seeds", "Gears", "All"
+local MAX_ITEMS = 999             -- макс. предметов в одной посылке
+local SEND_DELAY = 5              -- задержка между отправками (секунд)
+-- ====================================================
+
+local player = game:GetService("Players").LocalPlayer
+local Packet = require(game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"))
+local MailboxSendBatch = Packet("MailboxSendBatch")
+
+-- Приведение категории к множественному числу (как требует сервер)
+local function pluralizeCategory(cat)
+    local map = {
+        Seed = "Seeds",
+        Gear = "Gears",
+        Fruit = "Fruits",
+        Seeds = "Seeds",
+        Gears = "Gears",
+        Fruits = "Fruits"
+    }
+    return map[cat] or cat
+end
+
+-- Извлечение чистого названия фрукта (без веса)
+local function extractFruitName(fullName)
+    return string.match(fullName, "^(.-) %[.*%]$") or fullName
+end
+
+-- Сбор предметов по категории
+local function getItemsByCategory(category)
+    local items = {}
+    local backpack = player:FindFirstChild("Backpack")
+    if not backpack then return items end
+
+    for _, tool in ipairs(backpack:GetChildren()) do
+        if not tool:IsA("Tool") then continue end
+
+        local count = tonumber(tool:GetAttribute("Count")) or 0
+        local cat = tostring(tool:GetAttribute("MainCategory") or tool:GetAttribute("Category") or "")
+        local itemKey = tostring(tool:GetAttribute("SeedTool") or tool:GetAttribute("ItemKey") or "")
+
+        -- Фрукты определяем по весу в названии
+        if cat == "" and string.match(tool.Name, "%[.*%]") then
+            cat = "Fruit"
+            count = 1
+            itemKey = extractFruitName(tool.Name)
+        end
+
+        -- Пропускаем предметы без категории или с нулевым количеством
+        if cat == "" or count <= 0 then
+            continue
+        end
+
+        -- Если ключ пуст (Gear и т.п.), используем имя инструмента
+        if itemKey == "" then
+            itemKey = tool.Name
+        end
+
+        -- Приводим категорию к множественному числу
+        local finalCat = pluralizeCategory(cat)
+
+        -- Фильтр по категории
+        if category ~= "All" and finalCat:lower() ~= category:lower() then
+            continue
+        end
+
+        table.insert(items, {
+            ItemKey = itemKey,
+            Count = count,
+            Category = finalCat
+        })
+    end
+    return items
+end
+
+-- Отправка партиями с задержкой
+local function sendBatch(items)
+    local batch = {}
+    local sent = 0
+    for i, item in ipairs(items) do
+        table.insert(batch, item)
+        if #batch >= MAX_ITEMS or i == #items then
+            MailboxSendBatch:Fire(RECIPIENT_ID, batch, "")
+            sent = sent + #batch
+            print("📤 Отправлено " .. #batch .. " предметов (всего " .. sent .. ")")
+            batch = {}
+            if i < #items then
+                print("⏳ Пауза " .. SEND_DELAY .. " сек...")
+                task.wait(SEND_DELAY)
+            end
+        end
+    end
+    print("✅ Отправка завершена: " .. sent .. " предметов")
+end
+
+local allItems = getItemsByCategory(CATEGORY)
+if #allItems == 0 then
+    warn("❌ Нет предметов категории '" .. CATEGORY .. "' в рюкзаке.")
+else
+    print("👜 Найдено " .. #allItems .. " предметов для отправки.")
+    sendBatch(allItems)
+end
