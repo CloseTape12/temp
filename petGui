@@ -1,0 +1,241 @@
+local player = game:GetService("Players").LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local root = char:WaitForChild("HumanoidRootPart")
+local humanoid = char:WaitForChild("Humanoid")
+local RunService = game:GetService("RunService")
+local remote = game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
+
+local wildPetSpawns = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WildPetSpawns")
+local wildPetRef = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WildPetRef")
+if not wildPetSpawns or not wildPetRef then
+    warn("❌ Не найдены WildPetSpawns или WildPetRef")
+    return
+end
+
+local MOVE_SPEED = 50           -- скорость перемещения (стадов/сек), постоянная при любом FPS
+local LIFT_HEIGHT = 5           -- подъём над землёй во время полёта (метры)
+
+-- ====== СОЗДАНИЕ GUI (без изменений) ======
+local gui = Instance.new("ScreenGui")
+gui.Name = "PetBuyerGUI"
+gui.Parent = player.PlayerGui
+
+local frame = Instance.new("Frame")
+frame.Size = UDim2.new(0, 270, 0, 350)
+frame.Position = UDim2.new(0.01, 0, 0.3, 0)
+frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+frame.BackgroundTransparency = 0.15
+frame.BorderSizePixel = 0
+frame.Parent = gui
+
+local uiCorner = Instance.new("UICorner")
+uiCorner.CornerRadius = UDim.new(0, 8)
+uiCorner.Parent = frame
+
+local title = Instance.new("TextLabel")
+title.Text = "🐾 Дикие питомцы"
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.GothamBold
+title.TextSize = 16
+title.Parent = frame
+
+local scroll = Instance.new("ScrollingFrame")
+scroll.Size = UDim2.new(1, -10, 1, -40)
+scroll.Position = UDim2.new(0, 5, 0, 35)
+scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+scroll.ScrollBarThickness = 6
+scroll.BackgroundTransparency = 1
+scroll.Parent = frame
+
+local uiListLayout = Instance.new("UIListLayout")
+uiListLayout.Padding = UDim.new(0, 5)
+uiListLayout.Parent = scroll
+
+-- ====== ПЛАВНОЕ ПЕРЕМЕЩЕНИЕ С ПОСТОЯННОЙ СКОРОСТЬЮ (через Velocity) ======
+local function smoothMoveTo(targetPos)
+    local startPos = root.Position
+    local targetWithLift = targetPos + Vector3.new(0, LIFT_HEIGHT, 0)
+    local direction = (targetWithLift - startPos).Unit
+    local distance = (targetWithLift - startPos).Magnitude
+    if distance < 1 then return end
+
+    -- Включаем PlatformStand, чтобы отключить гравитацию и анимации
+    humanoid.PlatformStand = true
+    -- Задаём постоянную скорость в направлении цели
+    root.Velocity = direction * MOVE_SPEED
+
+    -- Ждём, пока долетим (расстояние до цели станет меньше порога)
+    while (root.Position - targetWithLift).Magnitude > 2 do
+        RunService.Heartbeat:Wait() -- минимальная задержка, цикл не грузит процессор
+    end
+
+    -- Останавливаемся и выключаем PlatformStand
+    root.Velocity = Vector3.zero
+    humanoid.PlatformStand = false
+end
+
+-- ====== ФУНКЦИИ ПОЛУЧЕНИЯ ДАННЫХ И ПОКУПКИ (без изменений) ======
+local function getPetData(petModel)
+    local data = {name = petModel.Name, price = "Неизвестно", time = "Неизвестно"}
+    local rootPart = petModel:FindFirstChild("RootPart")
+    if not rootPart then return data end
+
+    local prompt = rootPart:FindFirstChild("BuyPrompt")
+    if prompt and prompt:IsA("ProximityPrompt") then
+        local objText = prompt.ObjectText
+        if objText and objText ~= "" then
+            local num = string.match(objText, "(%d[%d,]*)")
+            if num then
+                data.price = num
+            else
+                data.price = objText
+            end
+        end
+    end
+
+    local timerLabel = petModel:FindFirstChild("Timer", true)
+    if timerLabel and (timerLabel:IsA("TextLabel") or timerLabel:IsA("BillboardGui")) then
+        if timerLabel:IsA("TextLabel") then
+            data.time = timerLabel.Text
+        elseif timerLabel:IsA("BillboardGui") then
+            local txt = timerLabel:FindFirstChild("TextLabel")
+            if txt then
+                data.time = txt.Text
+            end
+        end
+    end
+    return data
+end
+
+local function buyPet(petModel)
+    local rootPart = petModel:FindFirstChild("RootPart")
+    if not rootPart then return false end
+    local uuid = petModel.Name:match("([^_]+)$")
+    if not uuid then return false end
+    local petPart = wildPetRef:FindFirstChild("WildPet_" .. uuid)
+    if not petPart or not petPart:IsA("BasePart") then return false end
+
+    local startPos = root.Position
+    local targetPos = rootPart.Position + Vector3.new(0, 3, 0)
+
+    -- Плавно летим к питомцу
+    smoothMoveTo(targetPos)
+    task.wait(0.2)
+
+    -- Покупаем
+    local args = { buffer.fromstring("K\000"), { petPart } }
+    remote:FireServer(unpack(args))
+
+    task.wait(0.3)
+
+    -- Плавно возвращаемся
+    smoothMoveTo(startPos)
+    task.wait(0.2)
+    return true
+end
+
+-- ====== ОБНОВЛЕНИЕ GUI (без изменений) ======
+local function updateGUI()
+    for _, child in ipairs(scroll:GetChildren()) do
+        if child:IsA("Frame") then
+            child:Destroy()
+        end
+    end
+
+    local totalHeight = 0
+    for _, petModel in ipairs(wildPetSpawns:GetChildren()) do
+        if petModel:IsA("Model") and petModel.Name:find("WildPet_") then
+            local rootPart = petModel:FindFirstChild("RootPart")
+            if not rootPart then continue end
+
+            local prompt = rootPart:FindFirstChild("BuyPrompt")
+            local dist = (rootPart.Position - root.Position).Magnitude
+            local canBuy = (prompt and prompt:IsA("ProximityPrompt") and prompt.Enabled) or (dist <= 30)
+            if not canBuy then continue end
+
+            local data = getPetData(petModel)
+
+            local card = Instance.new("Frame")
+            card.Size = UDim2.new(1, -10, 0, 85)
+            card.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+            card.BackgroundTransparency = 0.1
+            card.BorderSizePixel = 0
+            card.Parent = scroll
+            card.Name = petModel.Name
+
+            local displayName = petModel.Name:match("WildPet_([^_]+)_WildPet_") or petModel.Name
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Text = displayName
+            nameLabel.Size = UDim2.new(1, -65, 0, 20)
+            nameLabel.Position = UDim2.new(0, 5, 0, 5)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameLabel.Font = Enum.Font.GothamSemibold
+            nameLabel.TextSize = 14
+            nameLabel.Parent = card
+
+            local priceLabel = Instance.new("TextLabel")
+            priceLabel.Text = "💰 " .. data.price
+            priceLabel.Size = UDim2.new(1, -65, 0, 20)
+            priceLabel.Position = UDim2.new(0, 5, 0, 25)
+            priceLabel.BackgroundTransparency = 1
+            priceLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+            priceLabel.Font = Enum.Font.Gotham
+            priceLabel.TextSize = 12
+            priceLabel.Parent = card
+
+            local timeLabel = Instance.new("TextLabel")
+            timeLabel.Text = "⏳ " .. data.time
+            timeLabel.Size = UDim2.new(1, -65, 0, 20)
+            timeLabel.Position = UDim2.new(0, 5, 0, 45)
+            timeLabel.BackgroundTransparency = 1
+            timeLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+            timeLabel.Font = Enum.Font.Gotham
+            timeLabel.TextSize = 12
+            timeLabel.Parent = card
+
+            local buyButton = Instance.new("TextButton")
+            buyButton.Text = "Купить"
+            buyButton.Size = UDim2.new(0, 55, 0, 26)
+            buyButton.Position = UDim2.new(1, -60, 0, 30)
+            buyButton.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+            buyButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+            buyButton.Font = Enum.Font.GothamBold
+            buyButton.TextSize = 12
+            buyButton.BorderSizePixel = 0
+            buyButton.Parent = card
+
+            buyButton.Activated:Connect(function()
+                buyButton.Text = "Покупаю..."
+                buyButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+                local success = buyPet(petModel)
+                if success then
+                    buyButton.Text = "✓"
+                    buyButton.BackgroundColor3 = Color3.fromRGB(0, 120, 0)
+                    task.wait(1.5)
+                    updateGUI()
+                else
+                    buyButton.Text = "Ошибка"
+                    buyButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+                    task.wait(1.5)
+                    buyButton.Text = "Купить"
+                    buyButton.BackgroundColor3 = Color3.fromRGB(0, 180, 0)
+                end
+            end)
+
+            totalHeight = totalHeight + 95
+        end
+    end
+    scroll.CanvasSize = UDim2.new(0, 0, 0, totalHeight)
+end
+
+updateGUI()
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        updateGUI()
+    end
+end)
