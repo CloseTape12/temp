@@ -16,6 +16,50 @@ if config.FPS_CAP then
     end
 end
 
+-- ОПТИМИЗАЦИЯ ИГРЫ
+if config.OPTIMIZE_GAME then
+    local Lighting = game:GetService("Lighting")
+    
+    -- Отключаем тяжелые эффекты освещения
+    Lighting.GlobalShadows = false
+    Lighting.FogEnd = 9e9
+    Lighting.Brightness = 0
+    Lighting.EnvironmentDiffuseScale = 0
+    Lighting.EnvironmentSpecularScale = 0
+    Lighting.ClockTime = 12
+    
+    pcall(function()
+        -- Снижаем качество материалов и убираем тени
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                obj.Material = Enum.Material.SmoothPlastic
+                obj.CastShadow = false
+            elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                obj.Transparency = 1
+            elseif obj:IsA("SpecialMesh") then
+                obj.TextureID = ""
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                obj.Enabled = false
+            end
+        end
+        
+        -- Автоматически оптимизируем новые объекты (растения, плоды и т.д.)
+        workspace.DescendantAdded:Connect(function(obj)
+            if obj:IsA("BasePart") then
+                obj.Material = Enum.Material.SmoothPlastic
+                obj.CastShadow = false
+            elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                obj.Transparency = 1
+            elseif obj:IsA("SpecialMesh") then
+                obj.TextureID = ""
+            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+                obj.Enabled = false
+            end
+        end)
+    end)
+    print("⚡ Игра оптимизирована: текстуры, тени и эффекты отключены!")
+end
+
 if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] then return end
 
 local player = game:GetService("Players").LocalPlayer
