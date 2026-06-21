@@ -6,134 +6,120 @@ if not config then
     return
 end
 
--- ПРИМЕНЕНИЕ ЛИМИТА FPS
+-- ==========================================
+-- 0. МАКСИМАЛЬНАЯ ОПТИМИЗАЦИЯ ИГРЫ
+-- ==========================================
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- 1. Лимит FPS
 if config.FPS_CAP then
     if setfpscap then
         pcall(setfpscap, config.FPS_CAP)
         print("🎬 Лимит FPS установлен на: " .. config.FPS_CAP)
-    else
-        warn("⚠️ Ваш эксплойт не поддерживает функцию setfpscap. Лимит FPS не применен.")
     end
 end
 
--- ОПТИМИЗАЦИЯ ИГРЫ (Визуальная)
-if config.OPTIMIZE_GAME then
-    local Lighting = game:GetService("Lighting")
-    Lighting.GlobalShadows = false
-    Lighting.FogEnd = 9e9
-    Lighting.Brightness = 0
-    Lighting.EnvironmentDiffuseScale = 0
-    Lighting.EnvironmentSpecularScale = 0
-    Lighting.ClockTime = 12
+-- 2. Настройки освещения и материалов
+Lighting.Technology = Enum.Technology.Compatibility
+Lighting.GlobalShadows = false
+Lighting.FogEnd = 9e9
+Lighting.Brightness = 0
+Lighting.EnvironmentDiffuseScale = 0
+Lighting.EnvironmentSpecularScale = 0
+Lighting.ClockTime = 12
+Lighting.ExposureCompensation = 0
+
+pcall(function()
+    -- Отключаем новые материалы Roblox
+    game:GetService("MaterialService").Use2022Materials = false
     
-    pcall(function()
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                obj.Material = Enum.Material.SmoothPlastic
-                obj.CastShadow = false
-            elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                obj.Transparency = 1
-            elseif obj:IsA("SpecialMesh") then
-                obj.TextureID = ""
-            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
-                obj.Enabled = false
-            end
-        end
-        workspace.DescendantAdded:Connect(function(obj)
-            if obj:IsA("BasePart") then
-                obj.Material = Enum.Material.SmoothPlastic
-                obj.CastShadow = false
-            elseif obj:IsA("Decal") or obj:IsA("Texture") then
-                obj.Transparency = 1
-            elseif obj:IsA("SpecialMesh") then
-                obj.TextureID = ""
-            elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
-                obj.Enabled = false
-            end
-        end)
-    end)
-    print("⚡ Игра оптимизирована: текстуры, тени и эффекты отключены!")
+    -- Отключаем воду и декорации террейна (экономит кучу памяти)
+    Workspace.Terrain.WaterWaveSize = 0
+    Workspace.Terrain.WaterWaveSpeed = 0
+    Workspace.Terrain.WaterReflectance = 0
+    Workspace.Terrain.Decoration = false
+    
+    if Workspace.StreamingEnabled then
+        Workspace.StreamingPauseMode = Enum.StreamingPauseMode.Disabled
+    end
+end)
+
+-- 3. Функция полной зачистки объекта
+local function processDescendant(obj)
+    if obj:IsA("BasePart") then
+        obj.Material = Enum.Material.SmoothPlastic
+        obj.CastShadow = false
+        obj.Reflectance = 0
+    elseif obj:IsA("Decal") or obj:IsA("Texture") then
+        obj.Transparency = 1
+    elseif obj:IsA("SpecialMesh") then
+        obj.TextureID = ""
+    elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") then
+        obj.Enabled = false
+    elseif obj:IsA("Sound") then
+        pcall(function() obj.SoundId = "" end)
+        pcall(function() obj:Destroy() end)
+    elseif obj:IsA("Animation") then
+        pcall(function() obj.AnimationId = "" end)
+    end
 end
 
--- ОПТИМИЗАЦИЯ RAM (ОПЕРАТИВНАЯ ПАМЯТЬ)
-if config.OPTIMIZE_RAM then
-    local Lighting = game:GetService("Lighting")
-    local Workspace = game:GetService("Workspace")
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
+-- 4. Применяем ко всем текущим объектам
+pcall(function()
+    for _, obj in ipairs(game:GetDescendants()) do
+        processDescendant(obj)
+    end
+end)
 
-    -- 1. Самое легкое освещение (снижает нагрузку на память рендера)
-    Lighting.Technology = Enum.Technology.Compatibility
+-- 5. Применяем ко всем будущим объектам
+game.DescendantAdded:Connect(function(obj)
+    task.defer(function()
+        if obj and obj.Parent then
+            processDescendant(obj)
+        end
+    end)
+end)
 
-    -- 2. Выгрузка звуков и анимаций из памяти
-    pcall(function()
-        for _, obj in ipairs(game:GetDescendants()) do
-            if obj:IsA("Sound") then
-                obj.SoundId = ""
-                pcall(function() obj:Destroy() end)
-            elseif obj:IsA("Animation") then
-                obj.AnimationId = ""
+-- 6. УДАЛЕНИЕ ЧУЖИХ ГРЯДОК И ИГРОКОВ (Максимальная экономия RAM)
+pcall(function()
+    local gardens = Workspace:FindFirstChild("Gardens")
+    if gardens then
+        for _, plot in ipairs(gardens:GetChildren()) do
+            if plot.Name ~= "Plot1" then
+                pcall(function() plot.Parent = nil end)
             end
         end
-        game.DescendantAdded:Connect(function(obj)
-            if obj:IsA("Sound") then
-                task.wait()
-                pcall(function() obj.SoundId = "" obj:Destroy() end)
-            elseif obj:IsA("Animation") then
-                pcall(function() obj.AnimationId = "" end)
+        gardens.ChildAdded:Connect(function(plot)
+            if plot.Name ~= "Plot1" then
+                pcall(function() plot.Parent = nil end)
             end
         end)
-    end)
+    end
+end)
 
-    -- 3. УДАЛЕНИЕ ЧУЖИХ ГРЯДОК (Снижает RAM на сотни мегабайт)
-    pcall(function()
-        local gardens = Workspace:FindFirstChild("Gardens")
-        if gardens then
-            for _, plot in ipairs(gardens:GetChildren()) do
-                if plot.Name ~= "Plot1" then
-                    pcall(function() plot.Parent = nil end) -- Выгружаем из памяти
-                end
-            end
-            gardens.ChildAdded:Connect(function(plot)
-                if plot.Name ~= "Plot1" then
-                    pcall(function() plot.Parent = nil end)
-                end
+pcall(function()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            pcall(function() p.Character.Parent = nil end)
+        end
+    end
+    Players.PlayerAdded:Connect(function(p)
+        if p ~= LocalPlayer then
+            p.CharacterAdded:Connect(function(char)
+                pcall(function() char.Parent = nil end)
             end)
         end
-        
-        -- Удаляем мусор с карты (декорации вне грядок)
-        for _, obj in ipairs(Workspace:GetChildren()) do
-            if not obj:IsA("Camera") and not obj:IsA("Terrain") and obj.Name ~= "Gardens" and obj.Name ~= "Ignore" and obj.Name ~= "Map" then
-                -- Можно удалить, если сильно мешает, но лучше оставить, чтобы не сломать физику
-                -- pcall(function() obj.Parent = nil end)
-            end
-        end
     end)
+end)
 
-    -- 4. УДАЛЕНИЕ ДРУГИХ ИГРОКОВ (Снижает RAM и нагрузку на сеть)
-    pcall(function()
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character then
-                pcall(function() p.Character.Parent = nil end)
-            end
-        end
-        Players.PlayerAdded:Connect(function(p)
-            if p ~= LocalPlayer then
-                p.CharacterAdded:Connect(function(char)
-                    pcall(function() char.Parent = nil end)
-                end)
-            end
-        end)
-    end)
-
-    print("🧠 Оперативная память оптимизирована: чужие грядки, игроки, звуки выгружены!")
-end
+print("🚀 МАКСИМАЛЬНАЯ оптимизация применена: текстуры, тени, эффекты, звуки, чужие грядки и игроки полностью выгружены из памяти!")
 
 if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] then return end
 
-local player = game:GetService("Players").LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Workspace = game:GetService("Workspace")
 local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
 
 local PurchaseSeed = Packet("PurchaseSeed")
@@ -146,7 +132,7 @@ local CollectFruit = Packet("CollectFruit")
 -- 1. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
 -- ==========================================
 local function teleportToStart()
-    local character = player.Character or player.CharacterAdded:Wait()
+    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local hrp = character:WaitForChild("HumanoidRootPart")
     
     local targetPart = Workspace:WaitForChild("Gardens"):WaitForChild("Plot1"):WaitForChild("Visual"):WaitForChild("PRIM")
@@ -195,7 +181,6 @@ local function advanceGrid()
     end
 end
 
--- ОПТИМИЗИРОВАННАЯ ПРОВЕРКА ЗАНЯТОСТИ (Математика вместо Физики)
 local function isPositionOccupied(pos)
     local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
     local plantsFolder = plot1 and plot1:FindFirstChild("Plants")
@@ -232,7 +217,7 @@ local totalPlanted = 0
 -- ==========================================
 local function getInventorySeeds()
     local seedsToPlant = {}
-    local backpack = player:FindFirstChild("Backpack")
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
     if not backpack then return seedsToPlant end
     for _, item in ipairs(backpack:GetChildren()) do
         if item:IsA("Tool") then
@@ -261,7 +246,7 @@ end
 
 local function getFruitCount()
     local success, result = pcall(function()
-        return player.PlayerGui.BackpackGui.Backpack.Inventory.FruitInventory.Text
+        return LocalPlayer.PlayerGui.BackpackGui.Backpack.Inventory.FruitInventory.Text
     end)
     if success and result then
         local countStr = string.match(result, "(%d+)")
@@ -272,7 +257,7 @@ end
 
 local function getCoins()
     local success, result = pcall(function()
-        local goal = player.PlayerGui.HUD.Currencies.CoinsCounter.Goal
+        local goal = LocalPlayer.PlayerGui.HUD.Currencies.CoinsCounter.Goal
         if goal and goal:IsA("ValueBase") then
             return goal.Value
         end
@@ -280,7 +265,6 @@ local function getCoins()
     return success and result or 0
 end
 
--- ОПТИМИЗИРОВАННЫЙ СБОР ПЛОДОВ
 local function getActiveFruits()
     local fruits = {}
     local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
@@ -349,7 +333,7 @@ end)
 task.spawn(function()
     if not config["Buy Seed"]["Enable"] then return end
     local function getNormalShop()
-        local seedShop = player.PlayerGui:FindFirstChild("SeedShop")
+        local seedShop = LocalPlayer.PlayerGui:FindFirstChild("SeedShop")
         if seedShop then
             local frame = seedShop:FindFirstChild("Frame")
             if frame then return frame:FindFirstChild("NormalShop") end
@@ -414,13 +398,13 @@ end)
 task.spawn(function()
     print("🗑️ Система удаления запущена...")
     local function equipShovel()
-        local char = player.Character
+        local char = LocalPlayer.Character
         if not char then return nil end
         local hum = char:FindFirstChild("Humanoid")
         local shovel = char:FindFirstChild("Shovel")
         if shovel and shovel:IsA("Tool") then return shovel end
 
-        local backpack = player:FindFirstChild("Backpack")
+        local backpack = LocalPlayer:FindFirstChild("Backpack")
         if backpack and hum then
             shovel = backpack:FindFirstChild("Shovel")
             if shovel and shovel:IsA("Tool") then
