@@ -6,6 +6,16 @@ if not config then
     return
 end
 
+-- ПРИМЕНЕНИЕ ЛИМИТА FPS
+if config.FPS_CAP then
+    if setfpscap then
+        pcall(setfpscap, config.FPS_CAP)
+        print("🎬 Лимит FPS установлен на: " .. config.FPS_CAP)
+    else
+        warn("⚠️ Ваш эксплойт не поддерживает функцию setfpscap. Лимит FPS не применен.")
+    end
+end
+
 if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] then return end
 
 local player = game:GetService("Players").LocalPlayer
@@ -80,7 +90,6 @@ local function isPositionOccupied(pos)
 
     for _, plant in ipairs(plantsFolder:GetChildren()) do
         local plantPos = plant:GetPivot().Position
-        -- Простая проверка дистанции по осям X и Z
         if math.abs(plantPos.X - pos.X) < (SPACING / 2) and math.abs(plantPos.Z - pos.Z) < (SPACING / 2) then
             return true
         end
@@ -91,8 +100,6 @@ end
 local function getNextPlantPosition()
     local pos = Vector3.new(currentX, targetY, currentZ)
     local skips = 0
-    
-    -- Ограничиваем количество пропусков, чтобы не зависнуть
     while isPositionOccupied(pos) and skips < 100 do
         skips += 1
         advanceGrid()
@@ -160,7 +167,7 @@ local function getCoins()
     return success and result or 0
 end
 
--- ОПТИМИЗИРОВАННЫЙ СБОР ПЛОДОВ (Ищем только в папке Plants, а не по всей карте)
+-- ОПТИМИЗИРОВАННЫЙ СБОР ПЛОДОВ
 local function getActiveFruits()
     local fruits = {}
     local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
