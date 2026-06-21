@@ -72,26 +72,28 @@ local function advanceGrid()
     end
 end
 
+-- ОПТИМИЗИРОВАННАЯ ПРОВЕРКА ЗАНЯТОСТИ (Математика вместо Физики)
 local function isPositionOccupied(pos)
-    local params = OverlapParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
     local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
-    local visualFolder = plot1 and plot1:FindFirstChild("Visual")
-    if visualFolder then
-        params.FilterDescendantsInstances = {player.Character, visualFolder}
-    else
-        params.FilterDescendantsInstances = {player.Character}
+    local plantsFolder = plot1 and plot1:FindFirstChild("Plants")
+    if not plantsFolder then return false end
+
+    for _, plant in ipairs(plantsFolder:GetChildren()) do
+        local plantPos = plant:GetPivot().Position
+        -- Простая проверка дистанции по осям X и Z
+        if math.abs(plantPos.X - pos.X) < (SPACING / 2) and math.abs(plantPos.Z - pos.Z) < (SPACING / 2) then
+            return true
+        end
     end
-    local boxCFrame = CFrame.new(pos + Vector3.new(0, 1, 0))
-    local boxSize = Vector3.new(SPACING, 2, SPACING)
-    local partsInBox = workspace:GetPartBoundsInBox(boxCFrame, boxSize, params)
-    return #partsInBox > 0
+    return false
 end
 
 local function getNextPlantPosition()
     local pos = Vector3.new(currentX, targetY, currentZ)
     local skips = 0
-    while isPositionOccupied(pos) and skips < (MAX_ROWS * MAX_COLS) do
+    
+    -- Ограничиваем количество пропусков, чтобы не зависнуть
+    while isPositionOccupied(pos) and skips < 100 do
         skips += 1
         advanceGrid()
         pos = Vector3.new(currentX, targetY, currentZ)
@@ -158,9 +160,15 @@ local function getCoins()
     return success and result or 0
 end
 
+-- ОПТИМИЗИРОВАННЫЙ СБОР ПЛОДОВ (Ищем только в папке Plants, а не по всей карте)
 local function getActiveFruits()
     local fruits = {}
-    for _, obj in ipairs(Workspace:GetDescendants()) do
+    local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
+    local plantsFolder = plot1 and plot1:FindFirstChild("Plants")
+    
+    if not plantsFolder then return fruits end
+
+    for _, obj in ipairs(plantsFolder:GetDescendants()) do
         if obj.Name == "HarvestPrompt" and obj:IsA("ProximityPrompt") and obj.Enabled then
             local harvestPart = obj.Parent
             if harvestPart then
@@ -311,7 +319,6 @@ task.spawn(function()
         local coins = getCoins()
         dynamicBlacklist = {}
 
-        -- Динамически формируем черный список из конфига
         if config.Blacklist then
             for threshold, seeds in pairs(config.Blacklist) do
                 if coins > tonumber(threshold) then
