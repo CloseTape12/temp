@@ -7,7 +7,7 @@ if not config then
 end
 
 -- ==========================================
--- 0. МАКСИМАЛЬНАЯ ОПТИМИЗАЦИЯ ИГРЫ
+-- 0. СТАБИЛЬНАЯ ОПТИМИЗАЦИЯ ИГРЫ
 -- ==========================================
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
@@ -22,68 +22,50 @@ if config.FPS_CAP then
     end
 end
 
--- 2. Настройки освещения и материалов
-Lighting.Technology = Enum.Technology.Compatibility
+-- 2. Настройки освещения
 Lighting.GlobalShadows = false
 Lighting.FogEnd = 9e9
 Lighting.Brightness = 0
 Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
-Lighting.ExposureCompensation = 0
 
+-- 3. Оптимизация визуала и памяти
 pcall(function()
-    -- Отключаем новые материалы Roblox
-    game:GetService("MaterialService").Use2022Materials = false
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") then
+            obj.Material = Enum.Material.SmoothPlastic
+            obj.CastShadow = false
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            obj.Transparency = 1
+        elseif obj:IsA("SpecialMesh") then
+            obj.TextureID = ""
+        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+            obj.Enabled = false
+        elseif obj:IsA("Sound") then
+            pcall(function() obj.SoundId = "" end)
+            pcall(function() obj:Destroy() end)
+        end
+    end
     
-    -- Отключаем воду и декорации террейна (экономит кучу памяти)
-    Workspace.Terrain.WaterWaveSize = 0
-    Workspace.Terrain.WaterWaveSpeed = 0
-    Workspace.Terrain.WaterReflectance = 0
-    Workspace.Terrain.Decoration = false
-    
-    if Workspace.StreamingEnabled then
-        Workspace.StreamingPauseMode = Enum.StreamingPauseMode.Disabled
-    end
-end)
-
--- 3. Функция полной зачистки объекта
-local function processDescendant(obj)
-    if obj:IsA("BasePart") then
-        obj.Material = Enum.Material.SmoothPlastic
-        obj.CastShadow = false
-        obj.Reflectance = 0
-    elseif obj:IsA("Decal") or obj:IsA("Texture") then
-        obj.Transparency = 1
-    elseif obj:IsA("SpecialMesh") then
-        obj.TextureID = ""
-    elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Fire") or obj:IsA("Smoke") or obj:IsA("Sparkles") then
-        obj.Enabled = false
-    elseif obj:IsA("Sound") then
-        pcall(function() obj.SoundId = "" end)
-        pcall(function() obj:Destroy() end)
-    elseif obj:IsA("Animation") then
-        pcall(function() obj.AnimationId = "" end)
-    end
-end
-
--- 4. Применяем ко всем текущим объектам
-pcall(function()
-    for _, obj in ipairs(game:GetDescendants()) do
-        processDescendant(obj)
-    end
-end)
-
--- 5. Применяем ко всем будущим объектам
-game.DescendantAdded:Connect(function(obj)
-    task.defer(function()
-        if obj and obj.Parent then
-            processDescendant(obj)
+    workspace.DescendantAdded:Connect(function(obj)
+        if obj:IsA("BasePart") then
+            obj.Material = Enum.Material.SmoothPlastic
+            obj.CastShadow = false
+        elseif obj:IsA("Decal") or obj:IsA("Texture") then
+            obj.Transparency = 1
+        elseif obj:IsA("SpecialMesh") then
+            obj.TextureID = ""
+        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") then
+            obj.Enabled = false
+        elseif obj:IsA("Sound") then
+            pcall(function() obj.SoundId = "" end)
+            pcall(function() obj:Destroy() end)
         end
     end)
 end)
 
--- 6. УДАЛЕНИЕ ЧУЖИХ ГРЯДОК И ИГРОКОВ (Максимальная экономия RAM)
+-- 4. УДАЛЕНИЕ ЧУЖИХ ГРЯДОК И ИГРОКОВ (Очистка RAM)
 pcall(function()
     local gardens = Workspace:FindFirstChild("Gardens")
     if gardens then
@@ -115,7 +97,7 @@ pcall(function()
     end)
 end)
 
-print("🚀 МАКСИМАЛЬНАЯ оптимизация применена: текстуры, тени, эффекты, звуки, чужие грядки и игроки полностью выгружены из памяти!")
+print("⚡ Оптимизация применена (стабильная версия)!")
 
 if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] then return end
 
