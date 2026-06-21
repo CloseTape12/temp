@@ -6,7 +6,7 @@ if not config then
     return
 end
 
--- ПРИМЕНЕНИЕ ЛИМИТА FPS
+-- ПРИМЕНЕНИЕ ЛИМИТА FP
 if config.FPS_CAP then
     if setfpscap then
         pcall(setfpscap, config.FPS_CAP)
