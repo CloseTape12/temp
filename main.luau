@@ -14,7 +14,6 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- 1. Лимит FPS
 if config.FPS_CAP then
     if setfpscap then
         pcall(setfpscap, config.FPS_CAP)
@@ -22,7 +21,6 @@ if config.FPS_CAP then
     end
 end
 
--- 2. Настройки освещения
 Lighting.GlobalShadows = false
 Lighting.FogEnd = 9e9
 Lighting.Brightness = 0
@@ -30,7 +28,6 @@ Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
 
--- 3. Оптимизация визуала и памяти
 pcall(function()
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
@@ -47,7 +44,6 @@ pcall(function()
             pcall(function() obj:Destroy() end)
         end
     end
-    
     workspace.DescendantAdded:Connect(function(obj)
         if obj:IsA("BasePart") then
             obj.Material = Enum.Material.SmoothPlastic
@@ -65,7 +61,6 @@ pcall(function()
     end)
 end)
 
--- 4. УДАЛЕНИЕ ЧУЖИХ ГРЯДОК И ИГРОКОВ (Очистка RAM)
 pcall(function()
     local gardens = Workspace:FindFirstChild("Gardens")
     if gardens then
@@ -99,7 +94,7 @@ end)
 
 print("⚡ Оптимизация применена (стабильная версия)!")
 
-if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] then return end
+if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] and not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) then return end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
@@ -109,6 +104,8 @@ local PlantSeed = Packet("PlantSeed")
 local SellAll = Packet("SellAll")
 local UseShovel = Packet("UseShovel")
 local CollectFruit = Packet("CollectFruit")
+-- Если покупка гира не работает, измени "PurchaseGear" на правильное имя пакета (например, "BuyGear")
+local PurchaseGear = Packet("PurchaseGear") 
 
 -- ==========================================
 -- 1. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
@@ -191,6 +188,7 @@ end
 
 local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
 local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
+local buyGearList = (config["Buy Gear"] and config["Buy Gear"]["Gear"]) or {}
 local totalPurchased = 0
 local totalPlanted = 0
 
@@ -282,7 +280,7 @@ end
 
 -- ПРОЦЕСС 1: ПОСАДКА
 task.spawn(function()
-    if not config["Plant Seed"]["Enable"] then return end
+    if not (config["Plant Seed"] and config["Plant Seed"]["Enable"]) then return end
     print("🌱 Авто-посадка запущена...")
     while true do
         local seeds = getInventorySeeds()
@@ -311,9 +309,9 @@ task.spawn(function()
     end
 end)
 
--- ПРОЦЕСС 2: ПОКУПКА
+-- ПРОЦЕСС 2: ПОКУПКА СЕМЯН
 task.spawn(function()
-    if not config["Buy Seed"]["Enable"] then return end
+    if not (config["Buy Seed"] and config["Buy Seed"]["Enable"]) then return end
     local function getNormalShop()
         local seedShop = LocalPlayer.PlayerGui:FindFirstChild("SeedShop")
         if seedShop then
@@ -323,7 +321,7 @@ task.spawn(function()
         return nil
     end
 
-    print("🔍 Сканер магазина запущен...")
+    print("🔍 Сканер магазина семян запущен...")
     while true do
         local normalShop = getNormalShop()
         if normalShop then
@@ -469,5 +467,50 @@ task.spawn(function()
         end
 
         task.wait(1) 
+    end
+end)
+
+-- НОВЫЙ ПРОЦЕСС 6: ПОКУПКА СНАРЯЖЕНИЯ (GEAR SHOP)
+task.spawn(function()
+    if not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) then return end
+
+    local function getGearScroller()
+        local gearShop = LocalPlayer.PlayerGui:FindFirstChild("GearShop")
+        if gearShop then
+            local frame = gearShop:FindFirstChild("Frame")
+            if frame then
+                return frame:FindFirstChild("ScrollingFrame")
+            end
+        end
+        return nil
+    end
+
+    print("🛠️ Сканер магазина снаряжения запущен...")
+    while true do
+        local scroller = getGearScroller()
+        if scroller then
+            for _, gearFrame in ipairs(scroller:GetChildren()) do
+                if gearFrame:IsA("Frame") then 
+                    local gearName = gearFrame.Name
+                    if buyGearList[gearName] == true then
+                        local mainFrame = gearFrame:FindFirstChild("Main_Frame")
+                        if mainFrame then
+                            local stockText = mainFrame:FindFirstChild("Stock_Text")
+                            if stockText and stockText:IsA("TextLabel") then
+                                -- Парсим наличие, например "x1 in Stock" -> 1
+                                local qty = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
+                                if qty > 0 then
+                                    for i = 1, qty do
+                                        PurchaseGear:Fire(gearName)
+                                        task.wait(0.2)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        task.wait(5) 
     end
 end)
