@@ -33,13 +33,13 @@ while true do
 
             if #newGifts == 0 then
                 -- Если новых посылок нет, просто ждём (окно открыто, может появятся позже)
-                task.wait(2)
+                task.wait(1)
             end
         else
-            task.wait(1) -- RecieveFrame ещё не загрузился
+            task.wait(0.2) -- RecieveFrame ещё не загрузился
         end
     else
         -- Окно почты закрыто, ждём открытия
-        task.wait(2)
+        task.wait(1)
     end
 end
