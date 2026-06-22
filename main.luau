@@ -104,7 +104,6 @@ local PlantSeed = Packet("PlantSeed")
 local SellAll = Packet("SellAll")
 local UseShovel = Packet("UseShovel")
 local CollectFruit = Packet("CollectFruit")
--- Если покупка гира не работает, измени "PurchaseGear" на правильное имя пакета (например, "BuyGear")
 local PurchaseGear = Packet("PurchaseGear") 
 
 -- ==========================================
@@ -470,7 +469,7 @@ task.spawn(function()
     end
 end)
 
--- НОВЫЙ ПРОЦЕСС 6: ПОКУПКА СНАРЯЖЕНИЯ (GEAR SHOP)
+-- ПРОЦЕСС 6: ПОКУПКА СНАРЯЖЕНИЯ (GEAR SHOP)
 task.spawn(function()
     if not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) then return end
 
