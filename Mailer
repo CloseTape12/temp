@@ -1,6 +1,6 @@
 -- ==================== КОНФИГУРАЦИЯ ====================
 local DEFAULT_RECIPIENT_ID = 10460326170   -- ID по умолчанию
-local MAX_ITEMS = 9999999                    -- макс. предметов в одной посылке
+local MAX_ITEMS = 9999999                  -- макс. предметов в одной посылке
 local SEND_DELAY = 5                       -- задержка между отправками (секунд)
 -- ====================================================
 
@@ -8,14 +8,20 @@ local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
+
 local MailboxSendBatch = Packet("MailboxSendBatch")
+local MailboxOpenInbox = Packet("MailboxOpenInbox")
+local MailboxClaim = Packet("MailboxClaim")
+
+-- Переменная состояния авто-сбора
+local autoClaimEnabled = true
 
 -- Удаляем старый GUI, если скрипт запускается повторно
 local oldGui = player.PlayerGui:FindFirstChild("MailboxSenderGui")
 if oldGui then oldGui:Destroy() end
 
 -- ==========================================
--- ЛОГИКА ОБРАБОТКИ ПРЕДМЕТОВ
+-- ЛОГИКА ОБРАБОТКИ ПРЕДМЕТОВ (ОТПРАВКА)
 -- ==========================================
 local function pluralizeCategory(cat)
     local map = {
@@ -29,7 +35,6 @@ local function extractFruitName(fullName)
     return string.match(fullName, "^(.-) %[.*%]$") or fullName
 end
 
--- Сбор всех предметов и их группировка
 local function getAllInventoryItems()
     local groupedItems = {}
     local backpack = player:FindFirstChild("Backpack")
@@ -65,7 +70,6 @@ local function getAllInventoryItems()
     return groupedItems
 end
 
--- Создание уникальной строки состояния инвентаря (для мониторинга изменений)
 local function getInventoryHash()
     local items = getAllInventoryItems()
     local keys = {}
@@ -79,7 +83,6 @@ local function getInventoryHash()
     return hash
 end
 
--- Отправка выбранного предмета
 local function sendSelectedItem(recipientId, itemKey, amountToSend, category)
     local batch = {}
     local sent = 0
@@ -104,6 +107,43 @@ local function sendSelectedItem(recipientId, itemKey, amountToSend, category)
 end
 
 -- ==========================================
+-- ЛОГИКА СБОРА ПОЧТЫ
+-- ==========================================
+local function getRecieveFrame()
+    local gui = player:WaitForChild("PlayerGui"):FindFirstChild("MailboxUI")
+    if gui then
+        local frame = gui:FindFirstChild("Frame")
+        if frame then
+            return frame:FindFirstChild("RecieveFrame")
+        end
+    end
+    return nil
+end
+
+local function claimMails()
+    local recieveFrame = getRecieveFrame()
+    if not recieveFrame then return end
+
+    local children = recieveFrame:GetChildren()
+    if #children == 0 then return end
+
+    print("📬 Найдено писем в интерфейсе: " .. #children)
+
+    for _, item in ipairs(children) do
+        local mailId = string.match(item.Name, "Gift_(%d+:.+)")
+
+        if mailId then
+            print("🚀 Собираю письмо: " .. mailId)
+            pcall(function()
+                MailboxClaim:Fire(mailId)
+            end)
+            pcall(function() item:Destroy() end)
+            task.wait(0.5)
+        end
+    end
+end
+
+-- ==========================================
 -- СОЗДАНИЕ GUI
 -- ==========================================
 local PlayerGui = player:WaitForChild("PlayerGui")
@@ -113,8 +153,8 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 350, 0, 500) -- Увеличили высоту
-MainFrame.Position = UDim2.new(0.5, -175, 0.5, -250)
+MainFrame.Size = UDim2.new(0, 350, 0, 555) -- Увеличили высоту под новую кнопку
+MainFrame.Position = UDim2.new(0.5, -175, 0.5, -277)
 MainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
@@ -123,7 +163,7 @@ local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, 0, 0, 40)
 Title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Text = "📦 Отправитель почты"
+Title.Text = "📦 Почта: Отправка и Сбор"
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
 Title.Parent = MainFrame
@@ -161,7 +201,6 @@ ItemsLabel.TextSize = 14
 ItemsLabel.TextXAlignment = Enum.TextXAlignment.Left
 ItemsLabel.Parent = MainFrame
 
--- ПОЛОСКА ПОИСКА
 local SearchBox = Instance.new("TextBox")
 SearchBox.Size = UDim2.new(1, -20, 0, 30)
 SearchBox.Position = UDim2.new(0, 10, 0, 130)
@@ -175,8 +214,8 @@ SearchBox.ClearTextOnFocus = false
 SearchBox.Parent = MainFrame
 
 local Scroller = Instance.new("ScrollingFrame")
-Scroller.Size = UDim2.new(1, -20, 0, 190) -- Сдвинули и уменьшили высоту
-Scroller.Position = UDim2.new(0, 10, 0, 170) -- Сдвинули вниз
+Scroller.Size = UDim2.new(1, -20, 0, 190)
+Scroller.Position = UDim2.new(0, 10, 0, 170)
 Scroller.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 Scroller.ScrollBarThickness = 4
 Scroller.Parent = MainFrame
@@ -228,13 +267,23 @@ SendButton.Font = Enum.Font.GothamBold
 SendButton.TextSize = 14
 SendButton.Parent = MainFrame
 
+-- НОВАЯ КНОПКА АВТО-СБОРА
+local AutoClaimButton = Instance.new("TextButton")
+AutoClaimButton.Size = UDim2.new(1, -20, 0, 35)
+AutoClaimButton.Position = UDim2.new(0, 10, 0, 495)
+AutoClaimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+AutoClaimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoClaimButton.Text = "🟢 Авто-сбор почты: ВКЛ"
+AutoClaimButton.Font = Enum.Font.GothamBold
+AutoClaimButton.TextSize = 14
+AutoClaimButton.Parent = MainFrame
+
 -- ==========================================
 -- ЛОГИКА GUI
 -- ==========================================
 local selectedItemData = nil
 local lastInventoryHash = ""
 
--- Функция обновления списка предметов в GUI (с учётом поиска)
 local function refreshItems()
     for _, child in ipairs(Scroller:GetChildren()) do
         if child:IsA("TextButton") then child:Destroy() end
@@ -244,7 +293,6 @@ local function refreshItems()
     local searchText = string.lower(SearchBox.Text or "")
     
     for itemKey, data in pairs(items) do
-        -- Фильтр по поиску
         if searchText == "" or string.find(string.lower(itemKey), searchText, 1, true) then
             local btn = Instance.new("TextButton")
             btn.Size = UDim2.new(1, -10, 0, 30)
@@ -255,7 +303,6 @@ local function refreshItems()
             btn.Text = string.format("%s (x%d) [%s]", itemKey, data.TotalCount, data.Category)
             btn.Parent = Scroller
             
-            -- Если этот предмет был выбран ранее, подсвечиваем его
             if selectedItemData and selectedItemData.ItemKey == itemKey then
                 btn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
             end
@@ -276,12 +323,10 @@ local function refreshItems()
     Scroller.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 10)
 end
 
--- Живой поиск: обновляем список при вводе текста
 SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
     refreshItems()
 end)
 
--- Логика кнопки отправки
 SendButton.MouseButton1Click:Connect(function()
     local recipientId = tonumber(IdBox.Text)
     local amount = tonumber(AmountBox.Text)
@@ -323,6 +368,18 @@ SendButton.MouseButton1Click:Connect(function()
     refreshItems()
 end)
 
+-- Логика переключателя авто-сбора
+AutoClaimButton.MouseButton1Click:Connect(function()
+    autoClaimEnabled = not autoClaimEnabled
+    if autoClaimEnabled then
+        AutoClaimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        AutoClaimButton.Text = "🟢 Авто-сбор почты: ВКЛ"
+    else
+        AutoClaimButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        AutoClaimButton.Text = "🔴 Авто-сбор почты: ВЫКЛ"
+    end
+end)
+
 -- Делаем окно перетаскиваемым
 do
     local dragging, dragInput, dragStart, startPos
@@ -350,13 +407,14 @@ do
 end
 
 -- ==========================================
--- МОНИТОРИНГ ИНВЕНТАРЯ (ФОНОВЫЙ ПРОЦЕСС)
+-- ФОНОВЫЕ ПРОЦЕССЫ
 -- ==========================================
+
+-- 1. Мониторинг инвентаря
 task.spawn(function()
     while true do
-        task.wait(2) -- Проверяем каждые 2 секунды
+        task.wait(2)
         local currentHash = getInventoryHash()
-        -- Если хэш изменился, значит инвентарь изменился (трейд, сбор, покупка)
         if currentHash ~= lastInventoryHash then
             lastInventoryHash = currentHash
             refreshItems()
@@ -364,7 +422,20 @@ task.spawn(function()
     end
 end)
 
+-- 2. Авто-сбор почты
+task.spawn(function()
+    print("✅ Авто-сборщик почты загружен. Ожидание...")
+    while true do
+        if autoClaimEnabled then
+            pcall(function() MailboxOpenInbox:Fire() end)
+            task.wait(2)
+            claimMails()
+        end
+        task.wait(10)
+    end
+end)
+
 -- Первичное заполнение списка
 lastInventoryHash = getInventoryHash()
 refreshItems()
-print("✅ GUI отправителя почты загружено. Мониторинг инвентаря активен.")
+print("✅ GUI отправителя и сборщика почты загружен.")
