@@ -212,7 +212,7 @@ local CORNER_1, CORNER_2
 if PLOT_DATA[MyPlotName] then
     CORNER_1 = PLOT_DATA[MyPlotName].C1
     CORNER_2 = PLOT_DATA[MyPlotName].C2
-    print("📐 Координаты сетки для " .. MyPlotName .. " загружены.")
+    print("📐 Координаты сетки для " .. MyPlotName .. " загружены: C1=" .. tostring(CORNER_1) .. " C2=" .. tostring(CORNER_2))
 else
     warn("⚠️ Координаты для " .. MyPlotName .. " не прописаны в PLOT_DATA! Посадка отключена.")
     CORNER_1 = nil
@@ -404,7 +404,11 @@ task.spawn(function()
 
                     local pos = getNextPlantPosition()
                     if pos then
+                        -- ВЫВОД КООРДИНАТ В КОНСОЛЬ ДЛЯ ОТЛАДКИ
+                        print(string.format("🌱 Сажаю %s в X:%.2f Y:%.2f Z:%.2f", seedData.name, pos.X, pos.Y, pos.Z))
+                        
                         PlantSeed:Fire(pos, seedData.name, seedData.tool)
+                        
                         -- Очищаем кэш через 2 секунды, чтобы сервер успел создать объект
                         task.delay(2, function()
                             for i, cachedPos in ipairs(recentlyPlantedCache) do
