@@ -164,20 +164,21 @@ end
 teleportToStart()
 
 -- ==========================================
--- 2. НАСТРОЙКА СЕТКИ ОТНОСИТЕЛЬНО PRIM (Идеальное выравнивание)
+-- 2. НАСТРОЙКА СЕТКИ ОТНОСИТЕЛЬНО PRIM
 -- ==========================================
 local SPACING = config.SPACING or 1
+local GRID_WIDTH = config.GRID_WIDTH or 13
+local GRID_DEPTH = config.GRID_DEPTH or 97
 
 local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("Visual"):WaitForChild("PRIM")
 local primCFrame = primPart.CFrame
-local primSize = primPart.Size
 
--- Вычисляем локальные границы грядки
-local startX = -primSize.X/2 + (SPACING/2)
-local endX = primSize.X/2
-local startZ = -primSize.Z/2 + (SPACING/2)
-local endZ = primSize.Z/2
-local targetY = 0 -- Высота относительно центра PRIM (семя ляжет ровно на поверхность)
+-- Вычисляем локальные границы грядки от её центра (PRIM)
+local startX = -(GRID_WIDTH / 2) + (SPACING / 2)
+local endX = (GRID_WIDTH / 2)
+local startZ = -(GRID_DEPTH / 2) + (SPACING / 2)
+local endZ = (GRID_DEPTH / 2)
+local targetY = 0 -- Высота относительно центра PRIM
 
 local MAX_COLS = math.floor((endZ - startZ) / SPACING) + 1
 local MAX_ROWS = math.floor((endX - startX) / SPACING) + 1
@@ -233,7 +234,7 @@ end
 
 local function getNextPlantPosition()
     local localX, localZ = currentX, currentZ
-    -- Переводим локальные координаты в мировые
+    -- Переводим локальные координаты в мировые с учетом поворота PRIM
     local worldPos = (primCFrame * CFrame.new(localX, targetY, localZ)).Position
     local skips = 0
     
@@ -249,7 +250,7 @@ local function getNextPlantPosition()
     return worldPos
 end
 
-print("📐 Сетка посадки построена относительно PRIM. Размер: " .. MAX_COLS .. "x" .. MAX_ROWS)
+print("📐 Сетка построена от центра PRIM. Размер: " .. MAX_COLS .. "x" .. MAX_ROWS)
 
 local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
 local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
