@@ -7,6 +7,45 @@ if not config then
 end
 
 -- ==========================================
+-- ФИКСИРОВАННЫЕ КООРДИНАТЫ ОГОРОДОВ
+-- ==========================================
+local PLOT_DATA = {
+    ["Plot1"] = {
+        C1 = Vector3.new(420.00, 142.35, -181.55),
+        C2 = Vector3.new(434.20, 142.35, -82.40)
+    },
+    ["Plot2"] = {
+        C1 = Vector3.new(0, 0, 0), -- Впиши координаты 1-го угла
+        C2 = Vector3.new(0, 0, 0)  -- Впиши координаты 2-го угла
+    },
+    ["Plot3"] = {
+        C1 = Vector3.new(0, 0, 0),
+        C2 = Vector3.new(0, 0, 0)
+    },
+    ["Plot4"] = {
+        C1 = Vector3.new(0, 0, 0),
+        C2 = Vector3.new(0, 0, 0)
+    },
+    ["Plot5"] = {
+        C1 = Vector3.new(0, 0, 0),
+        C2 = Vector3.new(0, 0, 0)
+    },
+    ["Plot6"] = {
+        C1 = Vector3.new(0, 0, 0),
+        C2 = Vector3.new(0, 0, 0)
+    },
+    ["Plot7"] = {
+        C1 = Vector3.new(0, 0, 0),
+        C2 = Vector3.new(0, 0, 0)
+    },
+    ["Plot8"] = {
+        C1 = Vector3.new(0, 0, 0),
+        C2 = Vector3.new(0, 0, 0)
+    }
+}
+-- ==========================================
+
+-- ==========================================
 -- 0. ОПРЕДЕЛЕНИЕ ОГОРОДА И ОПТИМИЗАЦИЯ
 -- ==========================================
 local Lighting = game:GetService("Lighting")
@@ -16,7 +55,6 @@ local LocalPlayer = Players.LocalPlayer
 
 -- 1. Определяем огород игрока
 local MyPlotName = "Plot1"
-local plotOffset = Vector3.new(0, 0, 0)
 
 local function detectPlot()
     local char = LocalPlayer.Character
@@ -59,17 +97,7 @@ if hrp then
     detectPlot()
 end
 
--- 2. Вычисляем смещение сетки (чтобы координаты из конфига подошли к новому огороду)
-pcall(function()
-    local plot1Prim = Workspace.Gardens:FindFirstChild("Plot1").Visual.PRIM
-    local myPlotPrim = Workspace.Gardens:FindFirstChild(MyPlotName).Visual.PRIM
-    if MyPlotName ~= "Plot1" then
-        plotOffset = myPlotPrim.Position - plot1Prim.Position
-        print("📐 Смещение сетки для " .. MyPlotName .. " рассчитано.")
-    end
-end)
-
--- 3. Лимит FPS
+-- 2. Лимит FPS
 if config.FPS_CAP then
     if setfpscap then
         pcall(setfpscap, config.FPS_CAP)
@@ -77,7 +105,7 @@ if config.FPS_CAP then
     end
 end
 
--- 4. Оптимизация освещения
+-- 3. Оптимизация освещения
 Lighting.GlobalShadows = false
 Lighting.FogEnd = 9e9
 Lighting.Brightness = 0
@@ -85,7 +113,7 @@ Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
 
--- 5. Оптимизация визуала
+-- 4. Оптимизация визуала
 pcall(function()
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
@@ -119,7 +147,7 @@ pcall(function()
     end)
 end)
 
--- 6. УДАЛЕНИЕ ЧУЖИХ ОГОРОДОВ (Оставляем только MyPlotName)
+-- 5. УДАЛЕНИЕ ЧУЖИХ ОГОРОДОВ
 pcall(function()
     local gardens = Workspace:FindFirstChild("Gardens")
     if gardens then
@@ -136,7 +164,7 @@ pcall(function()
     end
 end)
 
--- 7. Удаление других игроков
+-- 6. Удаление других игроков
 pcall(function()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
@@ -183,28 +211,41 @@ teleportToStart()
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ И ПЕРЕМЕННЫЕ
 -- ==========================================
--- Добавляем смещение (plotOffset) к координатам из конфига
-local CORNER_1 = config.CORNER_1 + plotOffset
-local CORNER_2 = config.CORNER_2 + plotOffset
 local SPACING = config.SPACING or 0.1
+local CORNER_1, CORNER_2
 
-local startX = math.min(CORNER_1.X, CORNER_2.X)
-local endX = math.max(CORNER_1.X, CORNER_2.X)
-local startZ = math.min(CORNER_1.Z, CORNER_2.Z)
-local endZ = math.max(CORNER_1.Z, CORNER_2.Z)
-local targetY = CORNER_1.Y 
+-- Берем фиксированные координаты для текущего огорода
+if PLOT_DATA[MyPlotName] and PLOT_DATA[MyPlotName].C1 ~= Vector3.new(0, 0, 0) then
+    CORNER_1 = PLOT_DATA[MyPlotName].C1
+    CORNER_2 = PLOT_DATA[MyPlotName].C2
+    print("📐 Координаты сетки для " .. MyPlotName .. " загружены.")
+else
+    warn("⚠️ Координаты для " .. MyPlotName .. " не прописаны в PLOT_DATA! Посадка будет отключена.")
+    CORNER_1 = nil
+    CORNER_2 = nil
+end
 
-local MAX_COLS = math.floor((endZ - startZ) / SPACING) + 1
-local MAX_ROWS = math.floor((endX - startX) / SPACING) + 1
+local startX, endX, startZ, endZ, targetY
+if CORNER_1 and CORNER_2 then
+    startX = math.min(CORNER_1.X, CORNER_2.X)
+    endX = math.max(CORNER_1.X, CORNER_2.X)
+    startZ = math.min(CORNER_1.Z, CORNER_2.Z)
+    endZ = math.max(CORNER_1.Z, CORNER_2.Z)
+    targetY = CORNER_1.Y 
+end
 
-local currentX = startX
-local currentZ = startZ
+local MAX_COLS = (endX and startZ) and (math.floor((endZ - startZ) / SPACING) + 1) or 0
+local MAX_ROWS = (endX and startX) and (math.floor((endX - startX) / SPACING) + 1) or 0
+
+local currentX = startX or 0
+local currentZ = startZ or 0
 local colCount = 0
 local rowCount = 0
 
 local dynamicBlacklist = {}
 
 local function advanceGrid()
+    if not CORNER_1 then return end
     currentZ = currentZ + SPACING
     colCount = colCount + 1
     if colCount >= MAX_COLS then
@@ -220,7 +261,6 @@ local function advanceGrid()
     end
 end
 
--- Теперь скрипт ищет растения в MyPlotName
 local function isPositionOccupied(pos)
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
@@ -236,6 +276,7 @@ local function isPositionOccupied(pos)
 end
 
 local function getNextPlantPosition()
+    if not CORNER_1 then return nil end
     local pos = Vector3.new(currentX, targetY, currentZ)
     local skips = 0
     while isPositionOccupied(pos) and skips < 100 do
@@ -306,7 +347,6 @@ local function getCoins()
     return success and result or 0
 end
 
--- Поиск плодов теперь в MyPlotName
 local function getActiveFruits()
     local fruits = {}
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
@@ -343,6 +383,10 @@ end
 -- ПРОЦЕСС 1: ПОСАДКА
 task.spawn(function()
     if not (config["Plant Seed"] and config["Plant Seed"]["Enable"]) then return end
+    if not CORNER_1 then 
+        print("❌ Авто-посадка отключена (нет координат для " .. MyPlotName .. ").")
+        return 
+    end
     print("🌱 Авто-посадка запущена...")
     while true do
         local seeds = getInventorySeeds()
@@ -361,8 +405,10 @@ task.spawn(function()
                     if liveCount <= 0 then break end
 
                     local pos = getNextPlantPosition()
-                    PlantSeed:Fire(pos, seedData.name, seedData.tool)
-                    totalPlanted = totalPlanted + 1
+                    if pos then
+                        PlantSeed:Fire(pos, seedData.name, seedData.tool)
+                        totalPlanted = totalPlanted + 1
+                    end
                     task.wait(0.3)
                 end
             end
