@@ -15,8 +15,8 @@ local PLOT_DATA = {
         C2 = Vector3.new(435, 142.35, -82)
     },
     ["Plot2"] = {
-        C1 = Vector3.new(405, 142.35, -50), -- Впиши координаты 1-го угла
-        C2 = Vector3.new(345, 142.35, 30)  -- Впиши координаты 2-го угла
+        C1 = Vector3.new(405, 142.35, -50),
+        C2 = Vector3.new(345, 142.35, 30)
     },
     ["Plot3"] = {
         C1 = Vector3.new(304, 142.35, -34),
@@ -53,16 +53,16 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
--- 1. Определяем огород игрока
 local MyPlotName = "Plot1"
 
+-- 1. Определяем огород игрока
 local function detectPlot()
     local char = LocalPlayer.Character
     if not char then return end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
     
-    local gardens = Workspace:FindFirstChild("Gardens")
+    local gardens = Workspace:WaitForChild("Gardens", 15)
     if not gardens then return end
 
     local closestPlot = nil
@@ -84,25 +84,19 @@ local function detectPlot()
     if closestPlot then
         MyPlotName = closestPlot
         print("📍 Игрок заспавнился на огороде: " .. MyPlotName)
-    else
-        print("⚠️ Не удалось определить огород, используется Plot1 по умолчанию.")
     end
 end
 
--- Ждем загрузки персонажа
 local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 local hrp = char:WaitForChild("HumanoidRootPart", 5)
 if hrp then
-    task.wait(1) -- Ждем прогрузки объектов
+    task.wait(2)
     detectPlot()
 end
 
 -- 2. Лимит FPS
-if config.FPS_CAP then
-    if setfpscap then
-        pcall(setfpscap, config.FPS_CAP)
-        print("🎬 Лимит FPS установлен на: " .. config.FPS_CAP)
-    end
+if config.FPS_CAP and setfpscap then
+    pcall(setfpscap, config.FPS_CAP)
 end
 
 -- 3. Оптимизация освещения
@@ -113,10 +107,10 @@ Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
 
--- 4. Оптимизация визуала
+-- 4. Оптимизация визуала (игнорирует маркеры)
 pcall(function()
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
+        if obj:IsA("BasePart") and obj.Name ~= "GridMarker" then
             obj.Material = Enum.Material.SmoothPlastic
             obj.CastShadow = false
         elseif obj:IsA("Decal") or obj:IsA("Texture") then
@@ -131,7 +125,7 @@ pcall(function()
         end
     end
     workspace.DescendantAdded:Connect(function(obj)
-        if obj:IsA("BasePart") then
+        if obj:IsA("BasePart") and obj.Name ~= "GridMarker" then
             obj.Material = Enum.Material.SmoothPlastic
             obj.CastShadow = false
         elseif obj:IsA("Decal") or obj:IsA("Texture") then
@@ -211,16 +205,31 @@ teleportToStart()
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ И ПЕРЕМЕННЫЕ
 -- ==========================================
-local SPACING = config.SPACING or 0.1
+local SPACING = config.SPACING or 1
 local CORNER_1, CORNER_2
 
 -- Берем фиксированные координаты для текущего огорода
-if PLOT_DATA[MyPlotName] and PLOT_DATA[MyPlotName].C1 ~= Vector3.new(0, 0, 0) then
+if PLOT_DATA[MyPlotName] then
     CORNER_1 = PLOT_DATA[MyPlotName].C1
     CORNER_2 = PLOT_DATA[MyPlotName].C2
-    print("📐 Координаты сетки для " .. MyPlotName .. " загружены.")
+    print("📐 Координаты сетки для " .. MyPlotName .. " загружены: " .. tostring(CORNER_1))
+    
+    -- ВИЗУАЛЬНЫЕ МАРКЕРЫ (Приподняты на 2 стада, чтобы торчали из земли)
+    local function createMarker(pos, color)
+        local m = Instance.new("Part")
+        m.Name = "GridMarker"
+        m.Anchored = true
+        m.CanCollide = false
+        m.Size = Vector3.new(1, 30, 1)
+        m.Color = color
+        m.Material = Enum.Material.Neon
+        m.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0)) 
+        m.Parent = workspace
+    end
+    createMarker(CORNER_1, Color3.new(1, 0, 0)) -- Красный
+    createMarker(CORNER_2, Color3.new(0, 0, 1)) -- Синий
 else
-    warn("⚠️ Координаты для " .. MyPlotName .. " не прописаны в PLOT_DATA! Посадка будет отключена.")
+    warn("⚠️ Координаты для " .. MyPlotName .. " не прописаны в PLOT_DATA! Посадка отключена.")
     CORNER_1 = nil
     CORNER_2 = nil
 end
@@ -231,7 +240,7 @@ if CORNER_1 and CORNER_2 then
     endX = math.max(CORNER_1.X, CORNER_2.X)
     startZ = math.min(CORNER_1.Z, CORNER_2.Z)
     endZ = math.max(CORNER_1.Z, CORNER_2.Z)
-    targetY = CORNER_1.Y 
+    targetY = CORNER_1.Y -- Строго твоя высота
 end
 
 local MAX_COLS = (endX and startZ) and (math.floor((endZ - startZ) / SPACING) + 1) or 0
@@ -259,6 +268,14 @@ local function advanceGrid()
             print("♻️ Зона посадки заполнена. Начинаем заново.")
         end
     end
+end
+
+-- НОВАЯ ФУНКЦИЯ: Подсчет реальных растений на грядке
+local function getPlantsCount()
+    local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
+    local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
+    if not plantsFolder then return 0 end
+    return #plantsFolder:GetChildren()
 end
 
 local function isPositionOccupied(pos)
@@ -291,8 +308,6 @@ end
 local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
 local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
 local buyGearList = (config["Buy Gear"] and config["Buy Gear"]["Gear"]) or {}
-local totalPurchased = 0
-local totalPlanted = 0
 
 -- ==========================================
 -- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -340,9 +355,7 @@ end
 local function getCoins()
     local success, result = pcall(function()
         local goal = LocalPlayer.PlayerGui.HUD.Currencies.CoinsCounter.Goal
-        if goal and goal:IsA("ValueBase") then
-            return goal.Value
-        end
+        if goal and goal:IsA("ValueBase") then return goal.Value end
     end)
     return success and result or 0
 end
@@ -351,7 +364,6 @@ local function getActiveFruits()
     local fruits = {}
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
-    
     if not plantsFolder then return fruits end
 
     for _, obj in ipairs(plantsFolder:GetDescendants()) do
@@ -359,9 +371,7 @@ local function getActiveFruits()
             local harvestPart = obj.Parent
             if harvestPart then
                 local fruit = harvestPart.Parent
-                if fruit then
-                    table.insert(fruits, fruit)
-                end
+                if fruit then table.insert(fruits, fruit) end
             end
         end
     end
@@ -370,9 +380,7 @@ end
 
 local function parseFruitUUIDs(fruitName)
     local parts = {}
-    for part in string.gmatch(fruitName, "[^_]+") do
-        table.insert(parts, part)
-    end
+    for part in string.gmatch(fruitName, "[^_]+") do table.insert(parts, part) end
     return parts[2], parts[3] or ""
 end
 
@@ -380,7 +388,7 @@ end
 -- 4. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
 -- ==========================================
 
--- ПРОЦЕСС 1: ПОСАДКА
+-- ПРОЦЕСС 1: ПОСАДКА (С ЖЕСТКОЙ СИНХРОНИЗАЦИЕЙ)
 task.spawn(function()
     if not (config["Plant Seed"] and config["Plant Seed"]["Enable"]) then return end
     if not CORNER_1 then 
@@ -406,10 +414,19 @@ task.spawn(function()
 
                     local pos = getNextPlantPosition()
                     if pos then
+                        local countBefore = getPlantsCount()
                         PlantSeed:Fire(pos, seedData.name, seedData.tool)
-                        totalPlanted = totalPlanted + 1
+                        
+                        -- ЖДЕМ, пока сервер физически не создаст растение (макс 2 секунды)
+                        local timeout = tick()
+                        while tick() - timeout < 2 do
+                            if getPlantsCount() > countBefore then
+                                break -- Сервер подтвердил посадку!
+                            end
+                            task.wait(0.05)
+                        end
                     end
-                    task.wait(0.3)
+                    task.wait(0.1)
                 end
             end
         end
@@ -445,7 +462,6 @@ task.spawn(function()
                                 if qty > 0 then
                                     for i = 1, qty do
                                         PurchaseSeed:Fire(seedName)
-                                        totalPurchased = totalPurchased + 1
                                         task.wait(0.2)
                                     end
                                 end
@@ -466,13 +482,10 @@ task.spawn(function()
     while true do
         local fruitCount = getFruitCount()
         local currentTime = os.clock()
-        
         if fruitCount >= 100 then
-            print("🚨 Инвентарь заполнен. Экстренная продажа!")
             SellAll:Fire()
             task.wait(0.5) 
         elseif fruitCount > 0 and (currentTime - lastSellTime >= 5) then
-            print("💰 Периодическая продажа...")
             SellAll:Fire()
             lastSellTime = currentTime
             task.wait(1)
@@ -510,7 +523,6 @@ task.spawn(function()
     while true do
         local coins = getCoins()
         dynamicBlacklist = {}
-
         if config.Blacklist then
             for threshold, seeds in pairs(config.Blacklist) do
                 if coins > tonumber(threshold) then
@@ -523,7 +535,6 @@ task.spawn(function()
 
         local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
         local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
-        
         if plantsFolder then
             for _, plant in ipairs(plantsFolder:GetChildren()) do
                 local seedName = plant:GetAttribute("SeedName")
@@ -531,14 +542,11 @@ task.spawn(function()
                     local val = plant:FindFirstChild("SeedName")
                     if val and val:IsA("StringValue") then seedName = val.Value end
                 end
-
                 if seedName and dynamicBlacklist[seedName] then
                     local shovel = equipShovel()
                     if shovel then
                         local parts = {}
-                        for part in string.gmatch(plant.Name, "[^_]+") do
-                            table.insert(parts, part)
-                        end
+                        for part in string.gmatch(plant.Name, "[^_]+") do table.insert(parts, part) end
                         if #parts >= 2 then
                             local plantId = parts[1] .. "_" .. parts[2]
                             UseShovel:Fire(plantId, "", "Shovel", shovel)
@@ -560,7 +568,6 @@ task.spawn(function()
     while true do
         local fruits = getActiveFruits()
         local harvested = 0
-
         for _, fruit in ipairs(fruits) do
             local plantUUID, fruitUUID = parseFruitUUIDs(fruit.Name)
             if plantUUID then
@@ -569,11 +576,7 @@ task.spawn(function()
                 task.wait(0.1)
             end
         end
-
-        if harvested > 0 then
-            print("🍎 Собрано плодов: " .. harvested)
-        end
-
+        if harvested > 0 then print("🍎 Собрано плодов: " .. harvested) end
         task.wait(1) 
     end
 end)
@@ -581,14 +584,11 @@ end)
 -- ПРОЦЕСС 6: ПОКУПКА СНАРЯЖЕНИЯ (GEAR SHOP)
 task.spawn(function()
     if not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) then return end
-
     local function getGearScroller()
         local gearShop = LocalPlayer.PlayerGui:FindFirstChild("GearShop")
         if gearShop then
             local frame = gearShop:FindFirstChild("Frame")
-            if frame then
-                return frame:FindFirstChild("ScrollingFrame")
-            end
+            if frame then return frame:FindFirstChild("ScrollingFrame") end
         end
         return nil
     end
