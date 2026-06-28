@@ -18,6 +18,7 @@ local randomX = math.random(200, math.max(300, viewportSize.X - 200))
 local randomY = math.random(200, math.max(300, viewportSize.Y - 200))
 
 print("🖱️ Кликаю по координатам X:" .. randomX .. " Y:" .. randomY .. " для закрытия загрузочного экрана...")
+task.wait(10)
 
 pcall(function()
     local VIM = game:GetService("VirtualInputManager")
