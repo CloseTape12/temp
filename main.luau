@@ -169,9 +169,11 @@ teleportToStart()
 local SPACING = config.SPACING or 1
 local GRID_WIDTH = config.GRID_WIDTH or 13
 local GRID_DEPTH = config.GRID_DEPTH or 97
+local GRID_ROTATION = config.GRID_ROTATION or 0
 
 local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("Visual"):WaitForChild("PRIM")
-local primCFrame = primPart.CFrame
+-- Добавляем поворот на 90 градусов (или любой другой из конфига)
+local primCFrame = primPart.CFrame * CFrame.Angles(0, math.rad(GRID_ROTATION), 0)
 
 -- Вычисляем локальные границы грядки от её центра (PRIM)
 local startX = -(GRID_WIDTH / 2) + (SPACING / 2)
@@ -208,7 +210,7 @@ local function advanceGrid()
 end
 
 local function isPositionOccupied(worldPos, localX, localZ)
-    -- 1. Проверяем кэш (защита от рассинхрона)
+    -- 1. Проверяем кэш
     for _, cachedPos in ipairs(recentlyPlantedCache) do
         if (cachedPos - worldPos).Magnitude < (SPACING * 0.8) then
             return true
@@ -222,7 +224,7 @@ local function isPositionOccupied(worldPos, localX, localZ)
 
     for _, plant in ipairs(plantsFolder:GetChildren()) do
         local plantPos = plant:GetPivot().Position
-        -- Переводим позицию растения в локальные координаты грядки
+        -- Переводим позицию растения в локальные координаты с учетом поворота
         local localOffset = primCFrame:ToObjectSpace(CFrame.new(plantPos)).Position
         
         if math.abs(localOffset.X - localX) < (SPACING / 2) and math.abs(localOffset.Z - localZ) < (SPACING / 2) then
@@ -250,7 +252,7 @@ local function getNextPlantPosition()
     return worldPos
 end
 
-print("📐 Сетка построена от центра PRIM. Размер: " .. MAX_COLS .. "x" .. MAX_ROWS)
+print("📐 Сетка построена от центра PRIM с поворотом " .. GRID_ROTATION .. "°. Размер: " .. MAX_COLS .. "x" .. MAX_ROWS)
 
 local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
 local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
