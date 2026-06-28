@@ -11,36 +11,36 @@ end
 -- ==========================================
 local PLOT_DATA = {
     ["Plot1"] = {
-        C1 = Vector3.new(420.00, 142.35, -181.55),
-        C2 = Vector3.new(434.20, 142.35, -82.40)
+        C1 = Vector3.new(420, 142.35, -180),
+        C2 = Vector3.new(435, 142.35, -82)
     },
     ["Plot2"] = {
-        C1 = Vector3.new(0, 0, 0), -- Впиши координаты 1-го угла
-        C2 = Vector3.new(0, 0, 0)  -- Впиши координаты 2-го угла
+        C1 = Vector3.new(405, 142.35, -50), -- Впиши координаты 1-го угла
+        C2 = Vector3.new(345, 142.35, 30)  -- Впиши координаты 2-го угла
     },
     ["Plot3"] = {
-        C1 = Vector3.new(0, 0, 0),
-        C2 = Vector3.new(0, 0, 0)
+        C1 = Vector3.new(304, 142.35, -34),
+        C2 = Vector3.new(205, 142.35, 48)
     },
     ["Plot4"] = {
-        C1 = Vector3.new(0, 0, 0),
-        C2 = Vector3.new(0, 0, 0)
+        C1 = Vector3.new(174, 142.35, 21),
+        C2 = Vector3.new(93, 142.35, 40)
     },
     ["Plot5"] = {
-        C1 = Vector3.new(0, 0, 0),
-        C2 = Vector3.new(0, 0, 0)
+        C1 = Vector3.new(90, 142.35, 82),
+        C2 = Vector3.new(75, 142.35, 181)
     },
     ["Plot6"] = {
-        C1 = Vector3.new(0, 0, 0),
-        C2 = Vector3.new(0, 0, 0)
+        C1 = Vector3.new(103, 142.35, -214),
+        C2 = Vector3.new(163, 142.35, -294)
     },
     ["Plot7"] = {
-        C1 = Vector3.new(0, 0, 0),
-        C2 = Vector3.new(0, 0, 0)
+        C1 = Vector3.new(205, 142.35, -297),
+        C2 = Vector3.new(304, 142.35, -311)
     },
     ["Plot8"] = {
-        C1 = Vector3.new(0, 0, 0),
-        C2 = Vector3.new(0, 0, 0)
+        C1 = Vector3.new(336, 142.35, -283),
+        C2 = Vector3.new(416, 142.35, -223)
     }
 }
 -- ==========================================
