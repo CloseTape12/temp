@@ -11,36 +11,36 @@ end
 -- ==========================================
 local PLOT_DATA = {
     ["Plot1"] = {
-        C1 = Vector3.new(420, 142.35, -180),
-        C2 = Vector3.new(435, 142.35, -82)
+        C1 = Vector3.new(420.5, 142.35, -180.5),
+        C2 = Vector3.new(433.5, 142.35, -83)
     },
     ["Plot2"] = {
-        C1 = Vector3.new(405, 142.35, -50),
-        C2 = Vector3.new(345, 142.35, 30)
+        C1 = Vector3.new(406, 142.35, -49),
+        C2 = Vector3.new(346.5, 142.35, 29)
     },
     ["Plot3"] = {
-        C1 = Vector3.new(304, 142.35, -34),
-        C2 = Vector3.new(205, 142.35, 48)
+        C1 = Vector3.new(303, 142.35, 34),
+        C2 = Vector3.new(206.5, 142.35, 47)
     },
     ["Plot4"] = {
-        C1 = Vector3.new(174, 142.35, 21),
-        C2 = Vector3.new(93, 142.35, 40)
+        C1 = Vector3.new(172, 142.35, 20),
+        C2 = Vector3.new(94, 142.35, -40)
     },
     ["Plot5"] = {
-        C1 = Vector3.new(90, 142.35, 82),
-        C2 = Vector3.new(75, 142.35, 181)
+        C1 = Vector3.new(88, 142.35, -83),
+        C2 = Vector3.new(76, 142.35, -180.5)
     },
     ["Plot6"] = {
-        C1 = Vector3.new(103, 142.35, -214),
-        C2 = Vector3.new(163, 142.35, -294)
+        C1 = Vector3.new(103, 142.35, -215),
+        C2 = Vector3.new(163, 142.35, -293)
     },
     ["Plot7"] = {
-        C1 = Vector3.new(205, 142.35, -297),
-        C2 = Vector3.new(304, 142.35, -311)
+        C1 = Vector3.new(206, 142.35, -298),
+        C2 = Vector3.new(303.5, 142.35, -310)
     },
     ["Plot8"] = {
-        C1 = Vector3.new(336, 142.35, -283),
-        C2 = Vector3.new(416, 142.35, -223)
+        C1 = Vector3.new(337.5, 142.35, -284),
+        C2 = Vector3.new(416, 142.35, -223.5)
     }
 }
 -- ==========================================
@@ -107,10 +107,10 @@ Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
 
--- 4. Оптимизация визуала (игнорирует маркеры)
+-- 4. Оптимизация визуала
 pcall(function()
     for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Name ~= "GridMarker" then
+        if obj:IsA("BasePart") then
             obj.Material = Enum.Material.SmoothPlastic
             obj.CastShadow = false
         elseif obj:IsA("Decal") or obj:IsA("Texture") then
@@ -125,7 +125,7 @@ pcall(function()
         end
     end
     workspace.DescendantAdded:Connect(function(obj)
-        if obj:IsA("BasePart") and obj.Name ~= "GridMarker" then
+        if obj:IsA("BasePart") then
             obj.Material = Enum.Material.SmoothPlastic
             obj.CastShadow = false
         elseif obj:IsA("Decal") or obj:IsA("Texture") then
@@ -212,22 +212,7 @@ local CORNER_1, CORNER_2
 if PLOT_DATA[MyPlotName] then
     CORNER_1 = PLOT_DATA[MyPlotName].C1
     CORNER_2 = PLOT_DATA[MyPlotName].C2
-    print("📐 Координаты сетки для " .. MyPlotName .. " загружены: " .. tostring(CORNER_1))
-    
-    -- ВИЗУАЛЬНЫЕ МАРКЕРЫ (Приподняты на 2 стада, чтобы торчали из земли)
-    local function createMarker(pos, color)
-        local m = Instance.new("Part")
-        m.Name = "GridMarker"
-        m.Anchored = true
-        m.CanCollide = false
-        m.Size = Vector3.new(1, 30, 1)
-        m.Color = color
-        m.Material = Enum.Material.Neon
-        m.CFrame = CFrame.new(pos + Vector3.new(0, 2, 0)) 
-        m.Parent = workspace
-    end
-    createMarker(CORNER_1, Color3.new(1, 0, 0)) -- Красный
-    createMarker(CORNER_2, Color3.new(0, 0, 1)) -- Синий
+    print("📐 Координаты сетки для " .. MyPlotName .. " загружены.")
 else
     warn("⚠️ Координаты для " .. MyPlotName .. " не прописаны в PLOT_DATA! Посадка отключена.")
     CORNER_1 = nil
@@ -252,6 +237,7 @@ local colCount = 0
 local rowCount = 0
 
 local dynamicBlacklist = {}
+local recentlyPlantedCache = {} 
 
 local function advanceGrid()
     if not CORNER_1 then return end
@@ -270,15 +256,15 @@ local function advanceGrid()
     end
 end
 
--- НОВАЯ ФУНКЦИЯ: Подсчет реальных растений на грядке
-local function getPlantsCount()
-    local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
-    local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
-    if not plantsFolder then return 0 end
-    return #plantsFolder:GetChildren()
-end
-
 local function isPositionOccupied(pos)
+    -- 1. Проверяем кэш (защита от рассинхрона)
+    for _, cachedPos in ipairs(recentlyPlantedCache) do
+        if math.abs(cachedPos.X - pos.X) < (SPACING / 2) and math.abs(cachedPos.Z - pos.Z) < (SPACING / 2) then
+            return true
+        end
+    end
+
+    -- 2. Проверяем реальную папку с растениями
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
     if not plantsFolder then return false end
@@ -302,6 +288,10 @@ local function getNextPlantPosition()
         pos = Vector3.new(currentX, targetY, currentZ)
     end
     advanceGrid()
+    
+    -- Добавляем позицию в кэш, чтобы не посадить туда снова до отрисовки сервером
+    table.insert(recentlyPlantedCache, pos)
+    
     return pos
 end
 
@@ -388,7 +378,7 @@ end
 -- 4. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
 -- ==========================================
 
--- ПРОЦЕСС 1: ПОСАДКА (С ЖЕСТКОЙ СИНХРОНИЗАЦИЕЙ)
+-- ПРОЦЕСС 1: ПОСАДКА
 task.spawn(function()
     if not (config["Plant Seed"] and config["Plant Seed"]["Enable"]) then return end
     if not CORNER_1 then 
@@ -414,19 +404,18 @@ task.spawn(function()
 
                     local pos = getNextPlantPosition()
                     if pos then
-                        local countBefore = getPlantsCount()
                         PlantSeed:Fire(pos, seedData.name, seedData.tool)
-                        
-                        -- ЖДЕМ, пока сервер физически не создаст растение (макс 2 секунды)
-                        local timeout = tick()
-                        while tick() - timeout < 2 do
-                            if getPlantsCount() > countBefore then
-                                break -- Сервер подтвердил посадку!
+                        -- Очищаем кэш через 2 секунды, чтобы сервер успел создать объект
+                        task.delay(2, function()
+                            for i, cachedPos in ipairs(recentlyPlantedCache) do
+                                if cachedPos == pos then
+                                    table.remove(recentlyPlantedCache, i)
+                                    break
+                                end
                             end
-                            task.wait(0.05)
-                        end
+                        end)
                     end
-                    task.wait(0.1)
+                    task.wait(0.3)
                 end
             end
         end
