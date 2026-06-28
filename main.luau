@@ -7,7 +7,35 @@ if not config then
 end
 
 -- ==========================================
--- 0. ОПРЕДЕЛЕНИЕ ОГОРОДА И ОПТИМИЗАЦИЯ
+-- 0. ЗАКРЫТИЕ ЗАГРУЗОЧНОГО ЭКРАНА
+-- ==========================================
+print("⏳ Ожидаю загрузки игры 10 секунд...")
+task.wait(10)
+
+local viewportSize = workspace.CurrentCamera.ViewportSize
+-- Выбираем случайную точку на экране (с отступом от краев)
+local randomX = math.random(200, math.max(300, viewportSize.X - 200))
+local randomY = math.random(200, math.max(300, viewportSize.Y - 200))
+
+print("🖱️ Кликаю по координатам X:" .. randomX .. " Y:" .. randomY .. " для закрытия загрузочного экрана...")
+
+pcall(function()
+    local VIM = game:GetService("VirtualInputManager")
+    -- Нажатие кнопки мыши (0 = левая кнопка)
+    VIM:SendMouseButtonEvent(randomX, randomY, 0, true, game, 1)
+    task.wait(0.1)
+    VIM:SendMouseButtonEvent(randomX, randomY, 0, false, game, 1)
+end)
+
+-- Запасной вариант для некоторых эксплойтов, если VirtualInputManager не сработал
+if mouse1click then
+    pcall(function() mouse1click() end)
+end
+
+print("✅ Попытка закрытия загрузочного экрана выполнена!")
+
+-- ==========================================
+-- 1. ОПРЕДЕЛЕНИЕ ОГОРОДА И ОПТИМИЗАЦИЯ
 -- ==========================================
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
@@ -150,7 +178,7 @@ local CollectFruit = Packet("CollectFruit")
 local PurchaseGear = Packet("PurchaseGear") 
 
 -- ==========================================
--- 1. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
+-- 2. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
 -- ==========================================
 local function teleportToStart()
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
@@ -164,7 +192,7 @@ end
 teleportToStart()
 
 -- ==========================================
--- 2. НАСТРОЙКА СЕТКИ ОТНОСИТЕЛЬНО PRIM
+-- 3. НАСТРОЙКА СЕТКИ ОТНОСИТЕЛЬНО PRIM
 -- ==========================================
 local SPACING = config.SPACING or 1
 local GRID_WIDTH = config.GRID_WIDTH or 13
@@ -172,15 +200,13 @@ local GRID_DEPTH = config.GRID_DEPTH or 97
 local GRID_ROTATION = config.GRID_ROTATION or 0
 
 local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("Visual"):WaitForChild("PRIM")
--- Добавляем поворот на 90 градусов (или любой другой из конфига)
 local primCFrame = primPart.CFrame * CFrame.Angles(0, math.rad(GRID_ROTATION), 0)
 
--- Вычисляем локальные границы грядки от её центра (PRIM)
 local startX = -(GRID_WIDTH / 2) + (SPACING / 2)
 local endX = (GRID_WIDTH / 2)
 local startZ = -(GRID_DEPTH / 2) + (SPACING / 2)
 local endZ = (GRID_DEPTH / 2)
-local targetY = 0 -- Высота относительно центра PRIM
+local targetY = 0
 
 local MAX_COLS = math.floor((endZ - startZ) / SPACING) + 1
 local MAX_ROWS = math.floor((endX - startX) / SPACING) + 1
@@ -210,21 +236,18 @@ local function advanceGrid()
 end
 
 local function isPositionOccupied(worldPos, localX, localZ)
-    -- 1. Проверяем кэш
     for _, cachedPos in ipairs(recentlyPlantedCache) do
         if (cachedPos - worldPos).Magnitude < (SPACING * 0.8) then
             return true
         end
     end
 
-    -- 2. Проверяем папку с растениями
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
     if not plantsFolder then return false end
 
     for _, plant in ipairs(plantsFolder:GetChildren()) do
         local plantPos = plant:GetPivot().Position
-        -- Переводим позицию растения в локальные координаты с учетом поворота
         local localOffset = primCFrame:ToObjectSpace(CFrame.new(plantPos)).Position
         
         if math.abs(localOffset.X - localX) < (SPACING / 2) and math.abs(localOffset.Z - localZ) < (SPACING / 2) then
@@ -236,7 +259,6 @@ end
 
 local function getNextPlantPosition()
     local localX, localZ = currentX, currentZ
-    -- Переводим локальные координаты в мировые с учетом поворота PRIM
     local worldPos = (primCFrame * CFrame.new(localX, targetY, localZ)).Position
     local skips = 0
     
@@ -259,7 +281,7 @@ local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
 local buyGearList = (config["Buy Gear"] and config["Buy Gear"]["Gear"]) or {}
 
 -- ==========================================
--- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+-- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 -- ==========================================
 local function getInventorySeeds()
     local seedsToPlant = {}
@@ -334,7 +356,7 @@ local function parseFruitUUIDs(fruitName)
 end
 
 -- ==========================================
--- 4. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
+-- 5. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
 -- ==========================================
 
 -- ПРОЦЕСС 1: ПОСАДКА
