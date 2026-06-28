@@ -7,13 +7,69 @@ if not config then
 end
 
 -- ==========================================
--- 0. СТАБИЛЬНАЯ ОПТИМИЗАЦИЯ ИГРЫ
+-- 0. ОПРЕДЕЛЕНИЕ ОГОРОДА И ОПТИМИЗАЦИЯ
 -- ==========================================
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 
+-- 1. Определяем огород игрока
+local MyPlotName = "Plot1"
+local plotOffset = Vector3.new(0, 0, 0)
+
+local function detectPlot()
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+    
+    local gardens = Workspace:FindFirstChild("Gardens")
+    if not gardens then return end
+
+    local closestPlot = nil
+    local shortestDistance = math.huge
+
+    for _, plot in ipairs(gardens:GetChildren()) do
+        if plot.Name:match("Plot%d+") then
+            local spawnPoint = plot:FindFirstChild("SpawnPoint")
+            if spawnPoint then
+                local dist = (hrp.Position - spawnPoint.Position).Magnitude
+                if dist < shortestDistance then
+                    shortestDistance = dist
+                    closestPlot = plot.Name
+                end
+            end
+        end
+    end
+    
+    if closestPlot then
+        MyPlotName = closestPlot
+        print("📍 Игрок заспавнился на огороде: " .. MyPlotName)
+    else
+        print("⚠️ Не удалось определить огород, используется Plot1 по умолчанию.")
+    end
+end
+
+-- Ждем загрузки персонажа
+local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart", 5)
+if hrp then
+    task.wait(1) -- Ждем прогрузки объектов
+    detectPlot()
+end
+
+-- 2. Вычисляем смещение сетки (чтобы координаты из конфига подошли к новому огороду)
+pcall(function()
+    local plot1Prim = Workspace.Gardens:FindFirstChild("Plot1").Visual.PRIM
+    local myPlotPrim = Workspace.Gardens:FindFirstChild(MyPlotName).Visual.PRIM
+    if MyPlotName ~= "Plot1" then
+        plotOffset = myPlotPrim.Position - plot1Prim.Position
+        print("📐 Смещение сетки для " .. MyPlotName .. " рассчитано.")
+    end
+end)
+
+-- 3. Лимит FPS
 if config.FPS_CAP then
     if setfpscap then
         pcall(setfpscap, config.FPS_CAP)
@@ -21,6 +77,7 @@ if config.FPS_CAP then
     end
 end
 
+-- 4. Оптимизация освещения
 Lighting.GlobalShadows = false
 Lighting.FogEnd = 9e9
 Lighting.Brightness = 0
@@ -28,6 +85,7 @@ Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
 
+-- 5. Оптимизация визуала
 pcall(function()
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
@@ -61,22 +119,24 @@ pcall(function()
     end)
 end)
 
+-- 6. УДАЛЕНИЕ ЧУЖИХ ОГОРОДОВ (Оставляем только MyPlotName)
 pcall(function()
     local gardens = Workspace:FindFirstChild("Gardens")
     if gardens then
         for _, plot in ipairs(gardens:GetChildren()) do
-            if plot.Name ~= "Plot1" then
+            if plot.Name ~= MyPlotName then
                 pcall(function() plot.Parent = nil end)
             end
         end
         gardens.ChildAdded:Connect(function(plot)
-            if plot.Name ~= "Plot1" then
+            if plot.Name ~= MyPlotName then
                 pcall(function() plot.Parent = nil end)
             end
         end)
     end
 end)
 
+-- 7. Удаление других игроков
 pcall(function()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
@@ -92,7 +152,7 @@ pcall(function()
     end)
 end)
 
-print("⚡ Оптимизация применена (стабильная версия)!")
+print("⚡ Оптимизация применена! Рабочий огород: " .. MyPlotName)
 
 if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] and not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) then return end
 
@@ -113,9 +173,9 @@ local function teleportToStart()
     local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
     local hrp = character:WaitForChild("HumanoidRootPart")
     
-    local targetPart = Workspace:WaitForChild("Gardens"):WaitForChild("Plot1"):WaitForChild("Visual"):WaitForChild("PRIM")
+    local targetPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("Visual"):WaitForChild("PRIM")
     hrp.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-    print("📍 Телепорт к Plot1 выполнен!")
+    print("📍 Телепорт к " .. MyPlotName .. " выполнен!")
 end
 
 teleportToStart()
@@ -123,8 +183,9 @@ teleportToStart()
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ И ПЕРЕМЕННЫЕ
 -- ==========================================
-local CORNER_1 = config.CORNER_1
-local CORNER_2 = config.CORNER_2
+-- Добавляем смещение (plotOffset) к координатам из конфига
+local CORNER_1 = config.CORNER_1 + plotOffset
+local CORNER_2 = config.CORNER_2 + plotOffset
 local SPACING = config.SPACING or 0.1
 
 local startX = math.min(CORNER_1.X, CORNER_2.X)
@@ -159,9 +220,10 @@ local function advanceGrid()
     end
 end
 
+-- Теперь скрипт ищет растения в MyPlotName
 local function isPositionOccupied(pos)
-    local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
-    local plantsFolder = plot1 and plot1:FindFirstChild("Plants")
+    local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
+    local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
     if not plantsFolder then return false end
 
     for _, plant in ipairs(plantsFolder:GetChildren()) do
@@ -244,10 +306,11 @@ local function getCoins()
     return success and result or 0
 end
 
+-- Поиск плодов теперь в MyPlotName
 local function getActiveFruits()
     local fruits = {}
-    local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
-    local plantsFolder = plot1 and plot1:FindFirstChild("Plants")
+    local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
+    local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
     
     if not plantsFolder then return fruits end
 
@@ -412,8 +475,8 @@ task.spawn(function()
             end
         end
 
-        local plot1 = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild("Plot1")
-        local plantsFolder = plot1 and plot1:FindFirstChild("Plants")
+        local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
+        local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
         
         if plantsFolder then
             for _, plant in ipairs(plantsFolder:GetChildren()) do
@@ -496,7 +559,6 @@ task.spawn(function()
                         if mainFrame then
                             local stockText = mainFrame:FindFirstChild("Stock_Text")
                             if stockText and stockText:IsA("TextLabel") then
-                                -- Парсим наличие, например "x1 in Stock" -> 1
                                 local qty = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
                                 if qty > 0 then
                                     for i = 1, qty do
