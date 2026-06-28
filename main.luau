@@ -7,45 +7,6 @@ if not config then
 end
 
 -- ==========================================
--- ФИКСИРОВАННЫЕ КООРДИНАТЫ ОГОРОДОВ
--- ==========================================
-local PLOT_DATA = {
-    ["Plot1"] = {
-        C1 = Vector3.new(420.5, 142.35, -180.5),
-        C2 = Vector3.new(433.5, 142.35, -83)
-    },
-    ["Plot2"] = {
-        C1 = Vector3.new(406, 142.35, -49),
-        C2 = Vector3.new(346.5, 142.35, 29)
-    },
-    ["Plot3"] = {
-        C1 = Vector3.new(303, 142.35, 34),
-        C2 = Vector3.new(206.5, 142.35, 47)
-    },
-    ["Plot4"] = {
-        C1 = Vector3.new(172, 142.35, 20),
-        C2 = Vector3.new(94, 142.35, -40)
-    },
-    ["Plot5"] = {
-        C1 = Vector3.new(88, 142.35, -83),
-        C2 = Vector3.new(76, 142.35, -180.5)
-    },
-    ["Plot6"] = {
-        C1 = Vector3.new(103, 142.35, -215),
-        C2 = Vector3.new(163, 142.35, -293)
-    },
-    ["Plot7"] = {
-        C1 = Vector3.new(206, 142.35, -298),
-        C2 = Vector3.new(303.5, 142.35, -310)
-    },
-    ["Plot8"] = {
-        C1 = Vector3.new(337.5, 142.35, -284),
-        C2 = Vector3.new(416, 142.35, -223.5)
-    }
-}
--- ==========================================
-
--- ==========================================
 -- 0. ОПРЕДЕЛЕНИЕ ОГОРОДА И ОПТИМИЗАЦИЯ
 -- ==========================================
 local Lighting = game:GetService("Lighting")
@@ -203,36 +164,26 @@ end
 teleportToStart()
 
 -- ==========================================
--- 2. НАСТРОЙКА СЕТКИ И ПЕРЕМЕННЫЕ
+-- 2. НАСТРОЙКА СЕТКИ ОТНОСИТЕЛЬНО PRIM (Идеальное выравнивание)
 -- ==========================================
 local SPACING = config.SPACING or 1
-local CORNER_1, CORNER_2
 
--- Берем фиксированные координаты для текущего огорода
-if PLOT_DATA[MyPlotName] then
-    CORNER_1 = PLOT_DATA[MyPlotName].C1
-    CORNER_2 = PLOT_DATA[MyPlotName].C2
-    print("📐 Координаты сетки для " .. MyPlotName .. " загружены: C1=" .. tostring(CORNER_1) .. " C2=" .. tostring(CORNER_2))
-else
-    warn("⚠️ Координаты для " .. MyPlotName .. " не прописаны в PLOT_DATA! Посадка отключена.")
-    CORNER_1 = nil
-    CORNER_2 = nil
-end
+local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("Visual"):WaitForChild("PRIM")
+local primCFrame = primPart.CFrame
+local primSize = primPart.Size
 
-local startX, endX, startZ, endZ, targetY
-if CORNER_1 and CORNER_2 then
-    startX = math.min(CORNER_1.X, CORNER_2.X)
-    endX = math.max(CORNER_1.X, CORNER_2.X)
-    startZ = math.min(CORNER_1.Z, CORNER_2.Z)
-    endZ = math.max(CORNER_1.Z, CORNER_2.Z)
-    targetY = CORNER_1.Y -- Строго твоя высота
-end
+-- Вычисляем локальные границы грядки
+local startX = -primSize.X/2 + (SPACING/2)
+local endX = primSize.X/2
+local startZ = -primSize.Z/2 + (SPACING/2)
+local endZ = primSize.Z/2
+local targetY = 0 -- Высота относительно центра PRIM (семя ляжет ровно на поверхность)
 
-local MAX_COLS = (endX and startZ) and (math.floor((endZ - startZ) / SPACING) + 1) or 0
-local MAX_ROWS = (endX and startX) and (math.floor((endX - startX) / SPACING) + 1) or 0
+local MAX_COLS = math.floor((endZ - startZ) / SPACING) + 1
+local MAX_ROWS = math.floor((endX - startX) / SPACING) + 1
 
-local currentX = startX or 0
-local currentZ = startZ or 0
+local currentX = startX
+local currentZ = startZ
 local colCount = 0
 local rowCount = 0
 
@@ -240,7 +191,6 @@ local dynamicBlacklist = {}
 local recentlyPlantedCache = {} 
 
 local function advanceGrid()
-    if not CORNER_1 then return end
     currentZ = currentZ + SPACING
     colCount = colCount + 1
     if colCount >= MAX_COLS then
@@ -256,22 +206,25 @@ local function advanceGrid()
     end
 end
 
-local function isPositionOccupied(pos)
+local function isPositionOccupied(worldPos, localX, localZ)
     -- 1. Проверяем кэш (защита от рассинхрона)
     for _, cachedPos in ipairs(recentlyPlantedCache) do
-        if math.abs(cachedPos.X - pos.X) < (SPACING / 2) and math.abs(cachedPos.Z - pos.Z) < (SPACING / 2) then
+        if (cachedPos - worldPos).Magnitude < (SPACING * 0.8) then
             return true
         end
     end
 
-    -- 2. Проверяем реальную папку с растениями
+    -- 2. Проверяем папку с растениями
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
     if not plantsFolder then return false end
 
     for _, plant in ipairs(plantsFolder:GetChildren()) do
         local plantPos = plant:GetPivot().Position
-        if math.abs(plantPos.X - pos.X) < (SPACING / 2) and math.abs(plantPos.Z - pos.Z) < (SPACING / 2) then
+        -- Переводим позицию растения в локальные координаты грядки
+        local localOffset = primCFrame:ToObjectSpace(CFrame.new(plantPos)).Position
+        
+        if math.abs(localOffset.X - localX) < (SPACING / 2) and math.abs(localOffset.Z - localZ) < (SPACING / 2) then
             return true
         end
     end
@@ -279,21 +232,24 @@ local function isPositionOccupied(pos)
 end
 
 local function getNextPlantPosition()
-    if not CORNER_1 then return nil end
-    local pos = Vector3.new(currentX, targetY, currentZ)
+    local localX, localZ = currentX, currentZ
+    -- Переводим локальные координаты в мировые
+    local worldPos = (primCFrame * CFrame.new(localX, targetY, localZ)).Position
     local skips = 0
-    while isPositionOccupied(pos) and skips < 100 do
+    
+    while isPositionOccupied(worldPos, localX, localZ) and skips < 100 do
         skips += 1
         advanceGrid()
-        pos = Vector3.new(currentX, targetY, currentZ)
+        localX, localZ = currentX, currentZ
+        worldPos = (primCFrame * CFrame.new(localX, targetY, localZ)).Position
     end
     advanceGrid()
     
-    -- Добавляем позицию в кэш, чтобы не посадить туда снова до отрисовки сервером
-    table.insert(recentlyPlantedCache, pos)
-    
-    return pos
+    table.insert(recentlyPlantedCache, worldPos)
+    return worldPos
 end
+
+print("📐 Сетка посадки построена относительно PRIM. Размер: " .. MAX_COLS .. "x" .. MAX_ROWS)
 
 local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
 local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
@@ -381,10 +337,6 @@ end
 -- ПРОЦЕСС 1: ПОСАДКА
 task.spawn(function()
     if not (config["Plant Seed"] and config["Plant Seed"]["Enable"]) then return end
-    if not CORNER_1 then 
-        print("❌ Авто-посадка отключена (нет координат для " .. MyPlotName .. ").")
-        return 
-    end
     print("🌱 Авто-посадка запущена...")
     while true do
         local seeds = getInventorySeeds()
@@ -404,12 +356,7 @@ task.spawn(function()
 
                     local pos = getNextPlantPosition()
                     if pos then
-                        -- ВЫВОД КООРДИНАТ В КОНСОЛЬ ДЛЯ ОТЛАДКИ
-                        print(string.format("🌱 Сажаю %s в X:%.2f Y:%.2f Z:%.2f", seedData.name, pos.X, pos.Y, pos.Z))
-                        
                         PlantSeed:Fire(pos, seedData.name, seedData.tool)
-                        
-                        -- Очищаем кэш через 2 секунды, чтобы сервер успел создать объект
                         task.delay(2, function()
                             for i, cachedPos in ipairs(recentlyPlantedCache) do
                                 if cachedPos == pos then
