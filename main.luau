@@ -13,27 +13,25 @@ print("⏳ Ожидаю загрузки игры 10 секунд...")
 task.wait(10)
 
 local viewportSize = workspace.CurrentCamera.ViewportSize
--- Выбираем случайную точку на экране (с отступом от краев)
 local randomX = math.random(200, math.max(300, viewportSize.X - 200))
 local randomY = math.random(200, math.max(300, viewportSize.Y - 200))
 
 print("🖱️ Кликаю по координатам X:" .. randomX .. " Y:" .. randomY .. " для закрытия загрузочного экрана...")
-task.wait(10)
 
 pcall(function()
     local VIM = game:GetService("VirtualInputManager")
-    -- Нажатие кнопки мыши (0 = левая кнопка)
     VIM:SendMouseButtonEvent(randomX, randomY, 0, true, game, 1)
     task.wait(0.1)
     VIM:SendMouseButtonEvent(randomX, randomY, 0, false, game, 1)
 end)
 
--- Запасной вариант для некоторых эксплойтов, если VirtualInputManager не сработал
 if mouse1click then
     pcall(function() mouse1click() end)
 end
 
-print("✅ Попытка закрытия загрузочного экрана выполнена!")
+print("✅ Клик выполнен! Жду 10 секунд для полной прогрузки карты...")
+task.wait(10)
+print("✅ Ожидание завершено. Запускаю основные процессы...")
 
 -- ==========================================
 -- 1. ОПРЕДЕЛЕНИЕ ОГОРОДА И ОПТИМИЗАЦИЯ
@@ -84,12 +82,23 @@ if hrp then
     detectPlot()
 end
 
--- 2. Лимит FPS
+-- 2. УДАЛЕНИЕ КАМЕР ЗАГРУЗКИ для текущего огорода
+pcall(function()
+    local myPlotFolder = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
+    if myPlotFolder then
+        local cam1 = myPlotFolder:FindFirstChild("LoadingScreenCam")
+        local cam2 = myPlotFolder:FindFirstChild("LoadingCam")
+        if cam1 then cam1:Destroy() print("🎥 Удалена LoadingScreenCam") end
+        if cam2 then cam2:Destroy() print("🎥 Удалена LoadingCam") end
+    end
+end)
+
+-- 3. Лимит FPS
 if config.FPS_CAP and setfpscap then
     pcall(setfpscap, config.FPS_CAP)
 end
 
--- 3. Оптимизация освещения
+-- 4. Оптимизация освещения
 Lighting.GlobalShadows = false
 Lighting.FogEnd = 9e9
 Lighting.Brightness = 0
@@ -97,7 +106,7 @@ Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
 
--- 4. Оптимизация визуала
+-- 5. Оптимизация визуала
 pcall(function()
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
@@ -131,7 +140,7 @@ pcall(function()
     end)
 end)
 
--- 5. УДАЛЕНИЕ ЧУЖИХ ОГОРОДОВ
+-- 6. УДАЛЕНИЕ ЧУЖИХ ОГОРОДОВ
 pcall(function()
     local gardens = Workspace:FindFirstChild("Gardens")
     if gardens then
@@ -148,7 +157,7 @@ pcall(function()
     end
 end)
 
--- 6. Удаление других игроков
+-- 7. Удаление других игроков
 pcall(function()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
