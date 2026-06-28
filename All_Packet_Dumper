@@ -1,0 +1,17 @@
+local remote = game:GetService("ReplicatedStorage"):WaitForChild("SharedModules"):WaitForChild("Packet"):WaitForChild("RemoteEvent")
+
+print("=== ЗАРЕГИСТРИРОВАННЫЕ ПАКЕТЫ ===")
+local attrs = remote:GetAttributes()
+for name, id in pairs(attrs) do
+    print(string.format("Имя: %-30s | ID: %d", name, id))
+end
+
+-- Если атрибутов нет, ждём 5 секунд и пробуем снова
+if next(attrs) == nil then
+    print("Атрибуты пока пустые. Жду 5 секунд...")
+    task.wait(5)
+    attrs = remote:GetAttributes()
+    for name, id in pairs(attrs) do
+        print(string.format("Имя: %-30s | ID: %d", name, id))
+    end
+end
