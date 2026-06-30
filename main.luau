@@ -43,7 +43,6 @@ local LocalPlayer = Players.LocalPlayer
 
 local MyPlotName = "Plot1"
 
--- 1. Определяем огород игрока
 local function detectPlot()
     local char = LocalPlayer.Character
     if not char then return end
@@ -82,7 +81,6 @@ if hrp then
     detectPlot()
 end
 
--- 2. УДАЛЕНИЕ КАМЕР ЗАГРУЗКИ для текущего огорода
 pcall(function()
     local myPlotFolder = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     if myPlotFolder then
@@ -93,12 +91,10 @@ pcall(function()
     end
 end)
 
--- 3. Лимит FPS
 if config.FPS_CAP and setfpscap then
     pcall(setfpscap, config.FPS_CAP)
 end
 
--- 4. Оптимизация освещения
 Lighting.GlobalShadows = false
 Lighting.FogEnd = 9e9
 Lighting.Brightness = 0
@@ -106,7 +102,6 @@ Lighting.EnvironmentDiffuseScale = 0
 Lighting.EnvironmentSpecularScale = 0
 Lighting.ClockTime = 12
 
--- 5. Оптимизация визуала
 pcall(function()
     for _, obj in ipairs(workspace:GetDescendants()) do
         if obj:IsA("BasePart") then
@@ -140,7 +135,6 @@ pcall(function()
     end)
 end)
 
--- 6. УДАЛЕНИЕ ЧУЖИХ ОГОРОДОВ
 pcall(function()
     local gardens = Workspace:FindFirstChild("Gardens")
     if gardens then
@@ -157,7 +151,6 @@ pcall(function()
     end
 end)
 
--- 7. Удаление других игроков
 pcall(function()
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character then
@@ -175,7 +168,7 @@ end)
 
 print("⚡ Оптимизация применена! Рабочий огород: " .. MyPlotName)
 
-if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] and not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) then return end
+if not config["Buy Seed"]["Enable"] and not config["Plant Seed"]["Enable"] and not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) and not config["Pets"] then return end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
@@ -186,6 +179,8 @@ local SellAll = Packet("SellAll")
 local UseShovel = Packet("UseShovel")
 local CollectFruit = Packet("CollectFruit")
 local PurchaseGear = Packet("PurchaseGear") 
+local WildPetTame = Packet("WildPetTame")
+local ToggleFollower = Packet("PetRequestToggleFollower")
 
 -- ==========================================
 -- 2. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
@@ -289,6 +284,8 @@ print("📐 Сетка построена от центра PRIM с поворо
 local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
 local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
 local buyGearList = (config["Buy Gear"] and config["Buy Gear"]["Gear"]) or {}
+local petsBuyList = (config["Pets"] and config["Pets"]["ToBuy"]) or {}
+local petsEquipList = (config["Pets"] and config["Pets"]["ToEquip"]) or {}
 
 -- ==========================================
 -- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
@@ -363,6 +360,129 @@ local function parseFruitUUIDs(fruitName)
     local parts = {}
     for part in string.gmatch(fruitName, "[^_]+") do table.insert(parts, part) end
     return parts[2], parts[3] or ""
+end
+
+-- ====== ФИЗИКА И ПОЛЁТ ДЛЯ ПЕТОВ ======
+local WALK_SPEED = 16
+
+local function setCharacterCollisions(state)
+    local char = LocalPlayer.Character
+    if not char then return end
+    for _, part in ipairs(char:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.CanCollide = state
+        end
+    end
+end
+
+local function smoothFlyTo(targetCFrame)
+    local char = LocalPlayer.Character
+    if not char then return false end
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChild("Humanoid")
+    if not hrp or not hum then return false end
+
+    local targetPos = targetCFrame.Position
+    local distance = (hrp.Position - targetPos).Magnitude
+    if distance <= 5 then return true end
+
+    setCharacterCollisions(false)
+    hum.PlatformStand = true
+    hum.AutoRotate = false
+
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = hrp
+
+    local alignPos = Instance.new("AlignPosition")
+    alignPos.Attachment0 = attachment
+    alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
+    alignPos.Position = targetPos
+    alignPos.MaxForce = 99999999
+    alignPos.MaxVelocity = WALK_SPEED
+    alignPos.Responsiveness = 20
+    alignPos.Parent = hrp
+
+    local alignOri = Instance.new("AlignOrientation")
+    alignOri.Attachment0 = attachment
+    alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
+    alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
+    alignOri.MaxTorque = 99999999
+    alignOri.Responsiveness = 20
+    alignOri.Parent = hrp
+
+    local timeout = tick() + (distance / WALK_SPEED) + 5
+
+    while (hrp.Position - targetPos).Magnitude > 5 and tick() < timeout do
+        alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
+        task.wait(0.1)
+    end
+
+    alignPos:Destroy()
+    alignOri:Destroy()
+    attachment:Destroy()
+    
+    hrp.AssemblyLinearVelocity = Vector3.zero
+    hrp.AssemblyAngularVelocity = Vector3.zero
+    return true
+end
+
+local function teleportToBaseSmooth()
+    local plot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
+    local prim = plot and plot:FindFirstChild("Visual") and plot.Visual:FindFirstChild("PRIM")
+    
+    if prim then
+        smoothFlyTo(prim.CFrame + Vector3.new(0, 3, 0))
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+            hum.AutoRotate = true
+        end
+        setCharacterCollisions(true)
+        print("📍 Плавный возврат на базу (" .. MyPlotName .. ") выполнен!")
+    end
+end
+
+local function getOwnedPetCount(petName)
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return 0 end
+
+    local count = 0
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") then
+            local name = item:GetAttribute("PetName") or item.Name
+            if name == petName then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+local function equipPets()
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return end
+
+    local equippedCounts = {}
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") then
+            local petId = item:GetAttribute("PetId")
+            if petId then
+                local petName = item:GetAttribute("PetName") or item.Name
+                local targetCount = petsEquipList[petName]
+                
+                if targetCount then
+                    local currentCount = equippedCounts[petName] or 0
+                    if currentCount < targetCount then
+                        ToggleFollower:Fire(petId)
+                        equippedCounts[petName] = currentCount + 1
+                        print("✅ Экипирован пет: " .. petName .. " (UUID: " .. petId .. ")")
+                        task.wait(0.5)
+                    end
+                end
+            end
+        end
+    end
 end
 
 -- ==========================================
@@ -594,5 +714,77 @@ task.spawn(function()
             end
         end
         task.wait(5) 
+    end
+end)
+
+-- ПРОЦЕСС 7: АВТО-ПОКУПКА И ЭКИПИРОВКА ПИТОМЦЕВ
+task.spawn(function()
+    if not config["Pets"] then return end
+    print("🐾 Скрипт авто-покупки питомцев запущен...")
+    
+    local wildPetSpawns = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WildPetSpawns")
+    local wildPetRef = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WildPetRef")
+    
+    if not wildPetSpawns or not wildPetRef then
+        warn("❌ Питомцы: Не найдены WildPetSpawns или WildPetRef")
+        return
+    end
+
+    task.spawn(function()
+        task.wait(3)
+        equipPets()
+    end)
+
+    while true do
+        local boughtSomething = false
+        
+        for _, petModel in ipairs(wildPetSpawns:GetChildren()) do
+            if petModel:IsA("Model") and petModel.Name:find("WildPet_") then
+                local petName = petModel.Name:match("WildPet_([^_]+)_WildPet_")
+                
+                if petName and petsBuyList[petName] then
+                    local maxLimit = petsBuyList[petName]
+                    local ownedCount = getOwnedPetCount(petName)
+                    
+                    if ownedCount >= maxLimit then
+                        continue
+                    end
+
+                    local rootPart = petModel:FindFirstChild("RootPart")
+                    if rootPart then
+                        local prompt = rootPart:FindFirstChild("BuyPrompt")
+                        if prompt and prompt:IsA("ProximityPrompt") and prompt.Enabled then
+                            print("🎯 Найден питомец для покупки: " .. petName .. " (В наличии: " .. ownedCount .. "/" .. maxLimit .. ")")
+                            
+                            local uuid = petModel.Name:match("([^_]+)$")
+                            local petPart = wildPetRef:FindFirstChild("WildPet_" .. uuid)
+                            
+                            if petPart and petPart:IsA("BasePart") then
+                                local targetCFrame = rootPart.CFrame + Vector3.new(0, 3, 0)
+                                
+                                smoothFlyTo(targetCFrame)
+                                task.wait(0.3)
+                                
+                                WildPetTame:Fire(petPart)
+                                print("✅ Питомец " .. petName .. " куплен!")
+                                task.wait(0.3)
+                                
+                                teleportToBaseSmooth()
+                                
+                                boughtSomething = true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        
+        if boughtSomething then
+            task.wait(1)
+            equipPets()
+        end
+        
+        task.wait(2)
     end
 end)
