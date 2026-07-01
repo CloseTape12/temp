@@ -89,7 +89,6 @@ pcall(function()
         if cam1 then cam1:Destroy() print("🎥 Удалена LoadingScreenCam") end
         if cam2 then cam2:Destroy() print("🎥 Удалена LoadingCam") end
         
-        -- Удаление папки Visual для экономии RAM
         local visualFolder = myPlotFolder:FindFirstChild("Visual")
         if visualFolder then
             visualFolder:Destroy()
@@ -191,7 +190,7 @@ local ToggleFollower = Packet("PetRequestToggleFollower")
 local ExpandGarden = Packet("ExpandGarden")
 
 -- ==========================================
--- 3. НАСТРОЙКА СЕТКИ
+-- 2. НАСТРОЙКА СЕТКИ
 -- ==========================================
 local SPACING = config.SPACING or 1
 local GRID_WIDTH = config.GRID_WIDTH or 13
@@ -276,7 +275,7 @@ local petsBuyList = (config["Pets"] and config["Pets"]["ToBuy"]) or {}
 local petsEquipList = (config["Pets"] and config["Pets"]["ToEquip"]) or {}
 
 -- ==========================================
--- 4. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+-- 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 -- ==========================================
 local function getInventorySeeds()
     local seedsToPlant = {}
@@ -389,14 +388,33 @@ local function parseFruitUUIDs(fruitName)
     return parts[2], parts[3] or ""
 end
 
--- ====== ФИЗИКА И ПОЛЁТ ДЛЯ ПЕТОВ ======
-local WALK_SPEED = 16
-
-local function setCharacterCollisions(state)
+-- ====== ФИЗИКА И ПОЛЁТ (РЕЖИМ ПРИЗРАКА) ======
+local originalCollisions = {}
+local function setGhostMode(isGhost)
     local char = LocalPlayer.Character
     if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    if hum then hum.PlatformStand = isGhost end
+    
     for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then part.CanCollide = state end
+        if part:IsA("BasePart") then
+            if isGhost then
+                originalCollisions[part] = {
+                    CanCollide = part.CanCollide,
+                    CanQuery = part.CanQuery,
+                    Massless = part.Massless
+                }
+                part.CanCollide = false
+                part.CanQuery = false
+                part.Massless = true
+            else
+                if originalCollisions[part] then
+                    part.CanCollide = originalCollisions[part].CanCollide
+                    part.CanQuery = originalCollisions[part].CanQuery
+                    part.Massless = originalCollisions[part].Massless
+                end
+            end
+        end
     end
 end
 
@@ -409,10 +427,9 @@ local function smoothFlyTo(targetCFrame)
 
     local targetPos = targetCFrame.Position
     local distance = (hrp.Position - targetPos).Magnitude
-    if distance <= 5 then return true end
+    if distance <= 1.5 then return true end 
 
-    setCharacterCollisions(false)
-    hum.PlatformStand = true
+    setGhostMode(true)
     hum.AutoRotate = false
 
     local attachment = Instance.new("Attachment")
@@ -423,8 +440,8 @@ local function smoothFlyTo(targetCFrame)
     alignPos.Mode = Enum.PositionAlignmentMode.OneAttachment
     alignPos.Position = targetPos
     alignPos.MaxForce = 99999999
-    alignPos.MaxVelocity = WALK_SPEED
-    alignPos.Responsiveness = 50 
+    alignPos.MaxVelocity = math.max(16, hum.WalkSpeed)
+    alignPos.Responsiveness = 50
     alignPos.Parent = hrp
 
     local alignOri = Instance.new("AlignOrientation")
@@ -432,12 +449,12 @@ local function smoothFlyTo(targetCFrame)
     alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
     alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
     alignOri.MaxTorque = 99999999
-    alignOri.Responsiveness = 50 
+    alignOri.Responsiveness = 50
     alignOri.Parent = hrp
 
-    local timeout = tick() + (distance / WALK_SPEED) + 10 
+    local timeout = tick() + (distance / 16) + 10
 
-    while (hrp.Position - targetPos).Magnitude > 5 and tick() < timeout do
+    while (hrp.Position - targetPos).Magnitude > 1.5 and tick() < timeout do
         alignPos.MaxVelocity = math.max(16, hum.WalkSpeed)
         alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
         task.wait(0.1)
@@ -452,7 +469,6 @@ local function smoothFlyTo(targetCFrame)
     return true
 end
 
--- ИСПРАВЛЕНО: Возврат на SpawnPoint вместо PRIM
 local function teleportToBaseSmooth()
     local plot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     local spawnPoint = plot and plot:FindFirstChild("SpawnPoint")
@@ -461,10 +477,9 @@ local function teleportToBaseSmooth()
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChild("Humanoid")
         if hum then
-            hum.PlatformStand = false
             hum.AutoRotate = true
         end
-        setCharacterCollisions(true)
+        setGhostMode(false)
     end
 end
 
@@ -505,7 +520,7 @@ local function equipPets()
 end
 
 -- ==========================================
--- 5. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
+-- 4. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
 -- ==========================================
 
 -- ПРОЦЕСС 1: ПОСАДКА
@@ -823,7 +838,6 @@ task.spawn(function()
     local upgradeCount = config.UPGRADE_COUNT or 0
     if upgradeCount <= 0 then return end
 
-    -- Функция перевода текста цены (напр. "40M¢") в число
     local function parsePrice(text)
         if not text then return math.huge end
         text = text:gsub("¢", "")
@@ -853,33 +867,117 @@ task.spawn(function()
     while upgradedTimes < upgradeCount do
         local currentPriceText = getCurrentPrice()
         
-        -- Если таблички нет, значит грядка уже максимального уровня
         if not currentPriceText then
             print("🚜 Грядка уже максимального уровня!")
             break
         end
 
         local priceNum = parsePrice(currentPriceText)
-        local coins = getCoins() -- Используем функцию получения баланса из основного скрипта
+        local coins = getCoins()
 
         if coins >= priceNum then
-            -- Денег хватает, покупаем
             pcall(function() ExpandGarden:Fire() end)
-            task.wait(1.5) -- Ждем обновления UI
+            task.wait(1.5) 
             
             local newPriceText = getCurrentPrice()
             if newPriceText ~= currentPriceText then
                 upgradedTimes = upgradedTimes + 1
                 print(string.format("🚜 Грядка улучшена! (%d/%d)", upgradedTimes, upgradeCount))
             else
-                -- Если цена не изменилась, хоть денег и хватало, возможно сервер тупит. Ждем.
                 task.wait(5)
             end
         else
-            -- Денег не хватает, ждем 5 секунд и проверяем снова
             task.wait(5)
         end
     end
 
     print("🚜 Прокачка грядки завершена!")
+end)
+
+-- ПРОЦЕСС 9: АВТО-СБОР ЛУННЫХ/ЗОЛОТЫХ СЕМЯН
+task.spawn(function()
+    print("🌙 Авто-сборщик семян запущен...")
+    
+    local mapFolder = Workspace:FindFirstChild("Map")
+    if not mapFolder then return end
+    
+    local spawnFolder = mapFolder:FindFirstChild("SeedPackSpawnServerLocations")
+    if not spawnFolder then return end
+
+    local collectedCache = {}
+    local seedQueue = {}
+    local isCollecting = false
+
+    local function processItem(obj)
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return false end
+
+        local targetPart = obj:IsA("BasePart") and obj or obj:FindFirstChildWhichIsA("BasePart", true)
+        if not targetPart then return false end
+
+        local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if not prompt then return false end
+
+        local targetCFrame = targetPart.CFrame * CFrame.new(0, 2, 0)
+        
+        smoothFlyTo(targetCFrame)
+        task.wait(0.3)
+        
+        prompt.HoldDuration = 0
+        prompt.RequiresLineOfSight = false
+        
+        if fireproximityprompt then pcall(fireproximityprompt, prompt, 0) end
+        if getconnections then
+            for _, signal in pairs(getconnections(prompt.Triggered)) do
+                pcall(function() signal:Fire() end)
+            end
+        end
+        
+        task.wait(0.3)
+        return true
+    end
+
+    local function addToQueue(obj)
+        task.wait(0.2)
+        if not obj or not obj.Parent then return end
+        if collectedCache[obj] then return end
+
+        local prompt = obj:FindFirstChildWhichIsA("ProximityPrompt", true)
+        if prompt and prompt.Enabled then
+            collectedCache[obj] = true
+            table.insert(seedQueue, obj)
+            print("📦 Семя добавлено в очередь. В очереди: " .. #seedQueue)
+        end
+    end
+
+    for _, child in ipairs(spawnFolder:GetChildren()) do
+        task.spawn(addToQueue, child)
+    end
+    spawnFolder.ChildAdded:Connect(function(child)
+        task.spawn(addToQueue, child)
+    end)
+
+    while true do
+        if not isCollecting and #seedQueue > 0 then
+            isCollecting = true
+            print("🚀 Начинаю вылет за семенами...")
+            
+            while #seedQueue > 0 do
+                local nextItem = seedQueue[1]
+                table.remove(seedQueue, 1)
+                
+                if nextItem and nextItem.Parent then
+                    processItem(nextItem)
+                end
+                task.wait(0.1)
+            end
+            
+            print("🏁 Очередь пуста. Возвращаюсь на грядку...")
+            teleportToBaseSmooth()
+            
+            isCollecting = false
+        end
+        task.wait(0.1)
+    end
 end)
