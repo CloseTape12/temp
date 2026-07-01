@@ -230,7 +230,7 @@ local function advanceGrid()
     if colCount >= MAX_COLS then
         colCount = 0
         currentZ = startZ
-        currentX = currentX - SPACING -- БЫЛО: currentX + SPACING. Теперь двигается в обратную сторону
+        currentX = currentX + SPACING -- БЫЛО: currentX + SPACING. Теперь двигается в обратную сторону
         rowCount = rowCount + 1
         if rowCount >= MAX_ROWS then
             rowCount = 0
