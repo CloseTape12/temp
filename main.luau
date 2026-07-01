@@ -214,7 +214,7 @@ local endZ = (GRID_DEPTH / 2)
 local targetY = 0
 
 local MAX_COLS = math.floor((endZ - startZ) / SPACING) + 1
-local MAX_ROWS = math.floor((endX - startX) / SPACING) + 1
+local MAX_ROWS = math.floor((endX - startX) / SPACING) - 1
 
 local currentX = startX
 local currentZ = startZ
