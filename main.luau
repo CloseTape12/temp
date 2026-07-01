@@ -225,7 +225,7 @@ local dynamicBlacklist = {}
 local recentlyPlantedCache = {} 
 
 local function advanceGrid()
-    currentZ = currentZ + SPACING
+    currentZ = currentZ - SPACING
     colCount = colCount + 1
     if colCount >= MAX_COLS then
         colCount = 0
