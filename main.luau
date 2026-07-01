@@ -418,6 +418,7 @@ local function setGhostMode(isGhost)
     end
 end
 
+-- ====== ИДЕАЛЬНЫЙ ФИЗИЧЕСКИЙ ПОЛЁТ (С ДОПРОВЕРКОЙ И ДОВОДКОЙ) ======
 local function smoothFlyTo(targetCFrame)
     local char = LocalPlayer.Character
     if not char then return false end
@@ -441,7 +442,7 @@ local function smoothFlyTo(targetCFrame)
     alignPos.Position = targetPos
     alignPos.MaxForce = 99999999
     alignPos.MaxVelocity = math.max(16, hum.WalkSpeed)
-    alignPos.Responsiveness = 150
+    alignPos.Responsiveness = 50
     alignPos.Parent = hrp
 
     local alignOri = Instance.new("AlignOrientation")
@@ -449,7 +450,7 @@ local function smoothFlyTo(targetCFrame)
     alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
     alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
     alignOri.MaxTorque = 99999999
-    alignOri.Responsiveness = 150
+    alignOri.Responsiveness = 50
     alignOri.Parent = hrp
 
     local timeout = tick() + (distance / 16) + 10
@@ -466,6 +467,24 @@ local function smoothFlyTo(targetCFrame)
     
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
+    
+    -- === НОВАЯ ДОПРОВЕРКА (ДОВОДКА) ===
+    local remainingDist = (hrp.Position - targetPos).Magnitude
+    if remainingDist > 2 then
+        print("⚠️ Физика не долетела (" .. math.floor(remainingDist) .. " ст). Дотягиваю вручную...")
+        local startPos = hrp.CFrame
+        local steps = math.ceil(remainingDist / 5)
+        for i = 1, steps do
+            if not char or not char.Parent or not hrp or not hrp.Parent then break end
+            hrp.CFrame = startPos:Lerp(targetCFrame, i / steps)
+            task.wait(0.03)
+        end
+        if hrp and hrp.Parent then
+            hrp.CFrame = targetCFrame
+            task.wait(0.2)
+        end
+    end
+    
     return true
 end
 
