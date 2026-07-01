@@ -191,58 +191,6 @@ local ToggleFollower = Packet("PetRequestToggleFollower")
 local ExpandGarden = Packet("ExpandGarden")
 
 -- ==========================================
--- 2. АВТО-ПРОКАЧКА ГРЯДКИ
--- ==========================================
-local function upgradeGarden()
-    local upgradeCount = config.UPGRADE_COUNT or 0
-    if upgradeCount <= 0 then return end
-
-    local PRICES = { "500¢", "40K¢", "1M¢", "40M¢", "200M¢" }
-
-    local function getCurrentPrice()
-        local sign = LocalPlayer.PlayerGui:FindFirstChild("ExpandSignGui")
-        if not sign then return nil end
-        for _, label in ipairs(sign:GetDescendants()) do
-            if label:IsA("TextLabel") then
-                local text = label.Text:gsub("%s+", "")
-                if text:match("¢$") or text:match("K¢$") or text:match("M¢$") then
-                    return text
-                end
-            end
-        end
-        return nil
-    end
-
-    local currentPrice = getCurrentPrice()
-    if not currentPrice then return end
-
-    local currentLevel = 0
-    for i, price in ipairs(PRICES) do
-        if price == currentPrice then currentLevel = i; break end
-    end
-
-    if currentLevel == 0 then return end
-
-    local maxUpgrades = math.max(0, 5 - currentLevel)
-    local desiredUpgrades = math.min(upgradeCount, maxUpgrades)
-
-    if desiredUpgrades <= 0 then return end
-
-    print(string.format("🚜 Прокачка: Уровень %d -> %d", currentLevel, currentLevel + desiredUpgrades))
-
-    for i = 1, desiredUpgrades do
-        local priceBefore = getCurrentPrice()
-        if not priceBefore then break end
-        pcall(function() ExpandGarden:Fire() end)
-        task.wait(1.5)
-        if getCurrentPrice() == priceBefore then break end
-    end
-    print("🚜 Прокачка завершена!")
-end
-
-upgradeGarden()
-
--- ==========================================
 -- 3. НАСТРОЙКА СЕТКИ
 -- ==========================================
 local SPACING = config.SPACING or 1
@@ -868,4 +816,70 @@ task.spawn(function()
         end
         task.wait(2)
     end
+end)
+
+-- ПРОЦЕСС 8: ДИНАМИЧЕСКАЯ ПРОКАЧКА ГРЯДКИ
+task.spawn(function()
+    local upgradeCount = config.UPGRADE_COUNT or 0
+    if upgradeCount <= 0 then return end
+
+    -- Функция перевода текста цены (напр. "40M¢") в число
+    local function parsePrice(text)
+        if not text then return math.huge end
+        text = text:gsub("¢", "")
+        local mult = 1
+        if text:match("K$") then mult = 1000; text = text:gsub("K", "")
+        elseif text:match("M$") then mult = 1000000; text = text:gsub("M", "") end
+        return tonumber(text) * mult
+    end
+
+    local function getCurrentPrice()
+        local sign = LocalPlayer.PlayerGui:FindFirstChild("ExpandSignGui")
+        if not sign then return nil end
+        for _, label in ipairs(sign:GetDescendants()) do
+            if label:IsA("TextLabel") then
+                local text = label.Text:gsub("%s+", "")
+                if text:match("¢$") or text:match("K¢$") or text:match("M¢$") then
+                    return text
+                end
+            end
+        end
+        return nil
+    end
+
+    print("🚜 Динамическая прокачка грядки запущена...")
+    local upgradedTimes = 0
+
+    while upgradedTimes < upgradeCount do
+        local currentPriceText = getCurrentPrice()
+        
+        -- Если таблички нет, значит грядка уже максимального уровня
+        if not currentPriceText then
+            print("🚜 Грядка уже максимального уровня!")
+            break
+        end
+
+        local priceNum = parsePrice(currentPriceText)
+        local coins = getCoins() -- Используем функцию получения баланса из основного скрипта
+
+        if coins >= priceNum then
+            -- Денег хватает, покупаем
+            pcall(function() ExpandGarden:Fire() end)
+            task.wait(1.5) -- Ждем обновления UI
+            
+            local newPriceText = getCurrentPrice()
+            if newPriceText ~= currentPriceText then
+                upgradedTimes = upgradedTimes + 1
+                print(string.format("🚜 Грядка улучшена! (%d/%d)", upgradedTimes, upgradeCount))
+            else
+                -- Если цена не изменилась, хоть денег и хватало, возможно сервер тупит. Ждем.
+                task.wait(5)
+            end
+        else
+            -- Денег не хватает, ждем 5 секунд и проверяем снова
+            task.wait(5)
+        end
+    end
+
+    print("🚜 Прокачка грядки завершена!")
 end)
