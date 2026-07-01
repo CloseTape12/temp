@@ -225,12 +225,12 @@ local dynamicBlacklist = {}
 local recentlyPlantedCache = {} 
 
 local function advanceGrid()
-    currentZ = currentZ - SPACING
+    currentZ = currentZ + SPACING
     colCount = colCount + 1
     if colCount >= MAX_COLS then
         colCount = 0
         currentZ = startZ
-        currentX = currentX + SPACING
+        currentX = currentX - SPACING -- БЫЛО: currentX + SPACING. Теперь двигается в обратную сторону
         rowCount = rowCount + 1
         if rowCount >= MAX_ROWS then
             rowCount = 0
