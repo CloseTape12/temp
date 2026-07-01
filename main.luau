@@ -441,7 +441,7 @@ local function smoothFlyTo(targetCFrame)
     alignPos.Position = targetPos
     alignPos.MaxForce = 99999999
     alignPos.MaxVelocity = math.max(16, hum.WalkSpeed)
-    alignPos.Responsiveness = 50
+    alignPos.Responsiveness = 150
     alignPos.Parent = hrp
 
     local alignOri = Instance.new("AlignOrientation")
@@ -449,7 +449,7 @@ local function smoothFlyTo(targetCFrame)
     alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
     alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
     alignOri.MaxTorque = 99999999
-    alignOri.Responsiveness = 50
+    alignOri.Responsiveness = 150
     alignOri.Parent = hrp
 
     local timeout = tick() + (distance / 16) + 10
