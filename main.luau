@@ -181,6 +181,7 @@ local CollectFruit = Packet("CollectFruit")
 local PurchaseGear = Packet("PurchaseGear") 
 local WildPetTame = Packet("WildPetTame")
 local ToggleFollower = Packet("PetRequestToggleFollower")
+local ExpandGarden = Packet("ExpandGarden")
 
 -- ==========================================
 -- 2. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
@@ -197,7 +198,59 @@ end
 teleportToStart()
 
 -- ==========================================
--- 3. НАСТРОЙКА СЕТКИ ОТНОСИТЕЛЬНО PRIM
+-- 2.5 АВТО-ПРОКАЧКА ГРЯДКИ
+-- ==========================================
+local function upgradeGarden()
+    local upgradeCount = config.UPGRADE_COUNT or 0
+    if upgradeCount <= 0 then return end
+
+    local PRICES = { "500¢", "40K¢", "1M¢", "40M¢", "200M¢" }
+
+    local function getCurrentPrice()
+        local sign = LocalPlayer.PlayerGui:FindFirstChild("ExpandSignGui")
+        if not sign then return nil end
+        for _, label in ipairs(sign:GetDescendants()) do
+            if label:IsA("TextLabel") then
+                local text = label.Text:gsub("%s+", "")
+                if text:match("¢$") or text:match("K¢$") or text:match("M¢$") then
+                    return text
+                end
+            end
+        end
+        return nil
+    end
+
+    local currentPrice = getCurrentPrice()
+    if not currentPrice then return end
+
+    local currentLevel = 0
+    for i, price in ipairs(PRICES) do
+        if price == currentPrice then currentLevel = i; break end
+    end
+
+    if currentLevel == 0 then return end
+
+    local maxUpgrades = math.max(0, 5 - currentLevel)
+    local desiredUpgrades = math.min(upgradeCount, maxUpgrades)
+
+    if desiredUpgrades <= 0 then return end
+
+    print(string.format("🚜 Прокачка: Уровень %d -> %d", currentLevel, currentLevel + desiredUpgrades))
+
+    for i = 1, desiredUpgrades do
+        local priceBefore = getCurrentPrice()
+        if not priceBefore then break end
+        pcall(function() ExpandGarden:Fire() end)
+        task.wait(1.5)
+        if getCurrentPrice() == priceBefore then break end
+    end
+    print("🚜 Прокачка завершена!")
+end
+
+upgradeGarden()
+
+-- ==========================================
+-- 3. НАСТРОЙКА СЕТКИ
 -- ==========================================
 local SPACING = config.SPACING or 1
 local GRID_WIDTH = config.GRID_WIDTH or 13
@@ -230,21 +283,18 @@ local function advanceGrid()
     if colCount >= MAX_COLS then
         colCount = 0
         currentZ = startZ
-        currentX = currentX - SPACING -- БЫЛО: currentX + SPACING. Теперь двигается в обратную сторону
+        currentX = currentX - SPACING 
         rowCount = rowCount + 1
         if rowCount >= MAX_ROWS then
             rowCount = 0
             currentX = startX
-            print("♻️ Зона посадки заполнена. Начинаем заново.")
         end
     end
 end
 
 local function isPositionOccupied(worldPos, localX, localZ)
     for _, cachedPos in ipairs(recentlyPlantedCache) do
-        if (cachedPos - worldPos).Magnitude < (SPACING * 0.8) then
-            return true
-        end
+        if (cachedPos - worldPos).Magnitude < (SPACING * 0.8) then return true end
     end
 
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
@@ -254,7 +304,6 @@ local function isPositionOccupied(worldPos, localX, localZ)
     for _, plant in ipairs(plantsFolder:GetChildren()) do
         local plantPos = plant:GetPivot().Position
         local localOffset = primCFrame:ToObjectSpace(CFrame.new(plantPos)).Position
-        
         if math.abs(localOffset.X - localX) < (SPACING / 2) and math.abs(localOffset.Z - localZ) < (SPACING / 2) then
             return true
         end
@@ -278,8 +327,6 @@ local function getNextPlantPosition()
     table.insert(recentlyPlantedCache, worldPos)
     return worldPos
 end
-
-print("📐 Сетка построена от центра PRIM с поворотом " .. GRID_ROTATION .. "°. Размер: " .. MAX_COLS .. "x" .. MAX_ROWS)
 
 local buyList = (config["Buy Seed"] and config["Buy Seed"]["Seed"]) or {}
 local plantList = (config["Plant Seed"] and config["Plant Seed"]["Seed"]) or {}
@@ -317,6 +364,58 @@ local function getInventorySeeds()
         end
     end
     return seedsToPlant
+end
+
+-- НОВАЯ ФУНКЦИЯ: Подсчет конкретных семян в инвентаре
+local function getInventorySeedCount(seedName)
+    local totalCount = 0
+    local backpack = LocalPlayer:FindFirstChild("Backpack")
+    if not backpack then return 0 end
+    for _, item in ipairs(backpack:GetChildren()) do
+        if item:IsA("Tool") then
+            local mainCat = item:GetAttribute("MainCategory")
+            if not mainCat then
+                local mcObj = item:FindFirstChild("MainCategory")
+                if mcObj and mcObj:IsA("StringValue") then mainCat = mcObj.Value end
+            end
+            if mainCat == "Seed" then
+                local name = item:GetAttribute("SeedTool")
+                if not name then
+                    local stObj = item:FindFirstChild("SeedTool")
+                    if stObj and stObj:IsA("StringValue") then name = stObj.Value end
+                end
+                if name == seedName then
+                    local c = item:GetAttribute("Count")
+                    if not c then
+                        local cObj = item:FindFirstChild("Count")
+                        if cObj and (cObj:IsA("IntValue") or cObj:IsA("NumberValue")) then c = cObj.Value end
+                    end
+                    totalCount = totalCount + (c or 0)
+                end
+            end
+        end
+    end
+    return totalCount
+end
+
+-- НОВАЯ ФУНКЦИЯ: Подсчет конкретных растений на грядке
+local function getPlantedCount(seedName)
+    local count = 0
+    local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
+    local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
+    if not plantsFolder then return 0 end
+
+    for _, plant in ipairs(plantsFolder:GetChildren()) do
+        local sName = plant:GetAttribute("SeedName")
+        if not sName then
+            local val = plant:FindFirstChild("SeedName")
+            if val and val:IsA("StringValue") then sName = val.Value end
+        end
+        if sName == seedName then
+            count = count + 1
+        end
+    end
+    return count
 end
 
 local function getFruitCount()
@@ -369,9 +468,7 @@ local function setCharacterCollisions(state)
     local char = LocalPlayer.Character
     if not char then return end
     for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = state
-        end
+        if part:IsA("BasePart") then part.CanCollide = state end
     end
 end
 
@@ -429,7 +526,6 @@ end
 local function teleportToBaseSmooth()
     local plot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
     local prim = plot and plot:FindFirstChild("Visual") and plot.Visual:FindFirstChild("PRIM")
-    
     if prim then
         smoothFlyTo(prim.CFrame + Vector3.new(0, 3, 0))
         local char = LocalPlayer.Character
@@ -439,21 +535,17 @@ local function teleportToBaseSmooth()
             hum.AutoRotate = true
         end
         setCharacterCollisions(true)
-        print("📍 Плавный возврат на базу (" .. MyPlotName .. ") выполнен!")
     end
 end
 
 local function getOwnedPetCount(petName)
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if not backpack then return 0 end
-
     local count = 0
     for _, item in ipairs(backpack:GetChildren()) do
         if item:IsA("Tool") then
             local name = item:GetAttribute("PetName") or item.Name
-            if name == petName then
-                count = count + 1
-            end
+            if name == petName then count = count + 1 end
         end
     end
     return count
@@ -462,7 +554,6 @@ end
 local function equipPets()
     local backpack = LocalPlayer:FindFirstChild("Backpack")
     if not backpack then return end
-
     local equippedCounts = {}
     for _, item in ipairs(backpack:GetChildren()) do
         if item:IsA("Tool") then
@@ -470,13 +561,11 @@ local function equipPets()
             if petId then
                 local petName = item:GetAttribute("PetName") or item.Name
                 local targetCount = petsEquipList[petName]
-                
                 if targetCount then
                     local currentCount = equippedCounts[petName] or 0
                     if currentCount < targetCount then
                         ToggleFollower:Fire(petId)
                         equippedCounts[petName] = currentCount + 1
-                        print("✅ Экипирован пет: " .. petName .. " (UUID: " .. petId .. ")")
                         task.wait(0.5)
                     end
                 end
@@ -489,39 +578,46 @@ end
 -- 5. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
 -- ==========================================
 
--- ПРОЦЕСС 1: ПОСАДКА
+-- ПРОЦЕСС 1: ПОСАДКА (С УЧЕТОМ ЛИМИТА НА ГРЯДКЕ)
 task.spawn(function()
     if not (config["Plant Seed"] and config["Plant Seed"]["Enable"]) then return end
     print("🌱 Авто-посадка запущена...")
     while true do
         local seeds = getInventorySeeds()
         for _, seedData in ipairs(seeds) do
-            if plantList[seedData.name] == true and not dynamicBlacklist[seedData.name] then
-                for i = 1, seedData.count do
-                    if not seedData.tool or not seedData.tool.Parent then break end
-                    local liveCount = 0
-                    local cObj = seedData.tool:FindFirstChild("Count")
-                    if cObj and (cObj:IsA("IntValue") or cObj:IsA("NumberValue")) then
-                        liveCount = cObj.Value
-                    else
-                        local attr = seedData.tool:GetAttribute("Count")
-                        if attr then liveCount = attr end
-                    end
-                    if liveCount <= 0 then break end
+            local maxPlants = plantList[seedData.name]
+            -- Если стоит лимит > 0
+            if maxPlants and maxPlants > 0 and not dynamicBlacklist[seedData.name] then
+                local plantedCount = getPlantedCount(seedData.name)
+                local canPlant = maxPlants - plantedCount
+                
+                if canPlant > 0 then
+                    for i = 1, math.min(canPlant, seedData.count) do
+                        if not seedData.tool or not seedData.tool.Parent then break end
+                        local liveCount = 0
+                        local cObj = seedData.tool:FindFirstChild("Count")
+                        if cObj and (cObj:IsA("IntValue") or cObj:IsA("NumberValue")) then
+                            liveCount = cObj.Value
+                        else
+                            local attr = seedData.tool:GetAttribute("Count")
+                            if attr then liveCount = attr end
+                        end
+                        if liveCount <= 0 then break end
 
-                    local pos = getNextPlantPosition()
-                    if pos then
-                        PlantSeed:Fire(pos, seedData.name, seedData.tool)
-                        task.delay(2, function()
-                            for i, cachedPos in ipairs(recentlyPlantedCache) do
-                                if cachedPos == pos then
-                                    table.remove(recentlyPlantedCache, i)
-                                    break
+                        local pos = getNextPlantPosition()
+                        if pos then
+                            PlantSeed:Fire(pos, seedData.name, seedData.tool)
+                            task.delay(2, function()
+                                for i, cachedPos in ipairs(recentlyPlantedCache) do
+                                    if cachedPos == pos then
+                                        table.remove(recentlyPlantedCache, i)
+                                        break
+                                    end
                                 end
-                            end
-                        end)
+                            end)
+                        end
+                        task.wait(0.3)
                     end
-                    task.wait(0.3)
                 end
             end
         end
@@ -529,7 +625,7 @@ task.spawn(function()
     end
 end)
 
--- ПРОЦЕСС 2: ПОКУПКА СЕМЯН
+-- ПРОЦЕСС 2: ПОКУПКА СЕМЯН (С УЧЕТОМ ЛИМИТА В ИНВЕНТАРЕ)
 task.spawn(function()
     if not (config["Buy Seed"] and config["Buy Seed"]["Enable"]) then return end
     local function getNormalShop()
@@ -548,16 +644,24 @@ task.spawn(function()
             for _, seedFrame in ipairs(normalShop:GetChildren()) do
                 if seedFrame:IsA("Frame") then 
                     local seedName = seedFrame.Name
-                    if buyList[seedName] == true then
-                        local mainFrame = seedFrame:FindFirstChild("Main_Frame")
-                        if mainFrame then
-                            local stockText = mainFrame:FindFirstChild("Stock_Text")
-                            if stockText and stockText:IsA("TextLabel") then
-                                local qty = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
-                                if qty > 0 then
-                                    for i = 1, qty do
-                                        PurchaseSeed:Fire(seedName)
-                                        task.wait(0.2)
+                    local maxBuy = buyList[seedName]
+                    
+                    if maxBuy and maxBuy > 0 then
+                        local currentCount = getInventorySeedCount(seedName)
+                        local canBuy = maxBuy - currentCount
+                        
+                        if canBuy > 0 then
+                            local mainFrame = seedFrame:FindFirstChild("Main_Frame")
+                            if mainFrame then
+                                local stockText = mainFrame:FindFirstChild("Stock_Text")
+                                if stockText and stockText:IsA("TextLabel") then
+                                    local qtyInShop = tonumber(string.match(stockText.Text, "x(%d+)")) or 0
+                                    if qtyInShop > 0 then
+                                        local toBuy = math.min(qtyInShop, canBuy)
+                                        for i = 1, toBuy do
+                                            PurchaseSeed:Fire(seedName)
+                                            task.wait(0.2)
+                                        end
                                     end
                                 end
                             end
@@ -590,7 +694,7 @@ task.spawn(function()
     end
 end)
 
--- ПРОЦЕСС 4: ДИНАМИЧЕСКОЕ УДАЛЕНИЕ ПО БАЛАНСУ
+-- ПРОЦЕСС 4: ДИНАМИЧЕСКОЕ УДАЛЕНИЕ ПО БАЛАНСУ И ЛИМИТУ
 task.spawn(function()
     print("🗑️ Система удаления запущена...")
     local function equipShovel()
@@ -631,13 +735,43 @@ task.spawn(function()
         local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
         local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
         if plantsFolder then
+            -- Считаем все растения на грядке для проверки лимитов
+            local plantedCounts = {}
+            for _, plant in ipairs(plantsFolder:GetChildren()) do
+                local sName = plant:GetAttribute("SeedName")
+                if not sName then
+                    local val = plant:FindFirstChild("SeedName")
+                    if val and val:IsA("StringValue") then sName = val.Value end
+                end
+                if sName then
+                    plantedCounts[sName] = (plantedCounts[sName] or 0) + 1
+                end
+            end
+
             for _, plant in ipairs(plantsFolder:GetChildren()) do
                 local seedName = plant:GetAttribute("SeedName")
                 if not seedName then
                     local val = plant:FindFirstChild("SeedName")
                     if val and val:IsA("StringValue") then seedName = val.Value end
                 end
+
+                local shouldDelete = false
+                
+                -- Причина 1: Черный список по балансу
                 if seedName and dynamicBlacklist[seedName] then
+                    shouldDelete = true
+                end
+
+                -- Причина 2: Превышен лимит посадки
+                if seedName and plantList[seedName] then
+                    local limit = plantList[seedName]
+                    if plantedCounts[seedName] > limit then
+                        shouldDelete = true
+                        plantedCounts[seedName] = plantedCounts[seedName] - 1 -- Уменьшаем счетчик, чтобы не удалить все подряд
+                    end
+                end
+
+                if shouldDelete then
                     local shovel = equipShovel()
                     if shovel then
                         local parts = {}
@@ -671,12 +805,11 @@ task.spawn(function()
                 task.wait(0.1)
             end
         end
-        if harvested > 0 then print("🍎 Собрано плодов: " .. harvested) end
         task.wait(1) 
     end
 end)
 
--- ПРОЦЕСС 6: ПОКУПКА СНАРЯЖЕНИЯ (GEAR SHOP)
+-- ПРОЦЕСС 6: ПОКУПКА СНАРЯЖЕНИЯ
 task.spawn(function()
     if not (config["Buy Gear"] and config["Buy Gear"]["Enable"]) then return end
     local function getGearScroller()
@@ -717,7 +850,7 @@ task.spawn(function()
     end
 end)
 
--- ПРОЦЕСС 7: АВТО-ПОКУПКА И ЭКИПИРОВКА ПИТОМЦЕВ
+-- ПРОЦЕСС 7: АВТО-ПОКУПКА ПИТОМЦЕВ
 task.spawn(function()
     if not config["Pets"] then return end
     print("🐾 Скрипт авто-покупки питомцев запущен...")
@@ -725,10 +858,7 @@ task.spawn(function()
     local wildPetSpawns = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WildPetSpawns")
     local wildPetRef = workspace:FindFirstChild("Map") and workspace.Map:FindFirstChild("WildPetRef")
     
-    if not wildPetSpawns or not wildPetRef then
-        warn("❌ Питомцы: Не найдены WildPetSpawns или WildPetRef")
-        return
-    end
+    if not wildPetSpawns or not wildPetRef then return end
 
     task.spawn(function()
         task.wait(3)
@@ -737,40 +867,26 @@ task.spawn(function()
 
     while true do
         local boughtSomething = false
-        
         for _, petModel in ipairs(wildPetSpawns:GetChildren()) do
             if petModel:IsA("Model") and petModel.Name:find("WildPet_") then
                 local petName = petModel.Name:match("WildPet_([^_]+)_WildPet_")
-                
                 if petName and petsBuyList[petName] then
                     local maxLimit = petsBuyList[petName]
                     local ownedCount = getOwnedPetCount(petName)
-                    
-                    if ownedCount >= maxLimit then
-                        continue
-                    end
+                    if ownedCount >= maxLimit then continue end
 
                     local rootPart = petModel:FindFirstChild("RootPart")
                     if rootPart then
                         local prompt = rootPart:FindFirstChild("BuyPrompt")
                         if prompt and prompt:IsA("ProximityPrompt") and prompt.Enabled then
-                            print("🎯 Найден питомец для покупки: " .. petName .. " (В наличии: " .. ownedCount .. "/" .. maxLimit .. ")")
-                            
                             local uuid = petModel.Name:match("([^_]+)$")
                             local petPart = wildPetRef:FindFirstChild("WildPet_" .. uuid)
-                            
                             if petPart and petPart:IsA("BasePart") then
-                                local targetCFrame = rootPart.CFrame + Vector3.new(0, 3, 0)
-                                
-                                smoothFlyTo(targetCFrame)
+                                smoothFlyTo(rootPart.CFrame + Vector3.new(0, 3, 0))
                                 task.wait(0.3)
-                                
                                 WildPetTame:Fire(petPart)
-                                print("✅ Питомец " .. petName .. " куплен!")
                                 task.wait(0.3)
-                                
                                 teleportToBaseSmooth()
-                                
                                 boughtSomething = true
                                 break
                             end
@@ -779,12 +895,10 @@ task.spawn(function()
                 end
             end
         end
-        
         if boughtSomething then
             task.wait(1)
             equipPets()
         end
-        
         task.wait(2)
     end
 end)
