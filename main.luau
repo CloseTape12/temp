@@ -204,7 +204,7 @@ local GRID_WIDTH = config.GRID_WIDTH or 13
 local GRID_DEPTH = config.GRID_DEPTH or 97
 local GRID_ROTATION = config.GRID_ROTATION or 0
 
-local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("Visual"):WaitForChild("PRIM")
+local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("SpawnPoint")
 local primCFrame = primPart.CFrame * CFrame.Angles(0, math.rad(GRID_ROTATION), 0)
 
 local startX = -(GRID_WIDTH / 2) + (SPACING / 2)
