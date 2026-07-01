@@ -646,7 +646,7 @@ task.spawn(function()
                     local seedName = seedFrame.Name
                     local maxBuy = buyList[seedName]
                     
-                    if maxBuy and maxBuy > 0 then
+                    if maxBuy and maxBuy > 0 and not dynamicBlacklist[seedName] then
                         local currentCount = getInventorySeedCount(seedName)
                         local canBuy = maxBuy - currentCount
                         
