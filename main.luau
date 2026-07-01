@@ -88,6 +88,13 @@ pcall(function()
         local cam2 = myPlotFolder:FindFirstChild("LoadingCam")
         if cam1 then cam1:Destroy() print("🎥 Удалена LoadingScreenCam") end
         if cam2 then cam2:Destroy() print("🎥 Удалена LoadingCam") end
+        
+        -- Удаление папки Visual для экономии RAM
+        local visualFolder = myPlotFolder:FindFirstChild("Visual")
+        if visualFolder then
+            visualFolder:Destroy()
+            print("🗑️ Удалена папка Visual для " .. MyPlotName)
+        end
     end
 end)
 
@@ -184,21 +191,7 @@ local ToggleFollower = Packet("PetRequestToggleFollower")
 local ExpandGarden = Packet("ExpandGarden")
 
 -- ==========================================
--- 2. ТЕЛЕПОРТ В НАЧАЛО СКРИПТА
--- ==========================================
-local function teleportToStart()
-    local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-    local hrp = character:WaitForChild("HumanoidRootPart")
-    
-    local targetPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("Visual"):WaitForChild("PRIM")
-    hrp.CFrame = targetPart.CFrame + Vector3.new(0, 3, 0)
-    print("📍 Телепорт к " .. MyPlotName .. " выполнен!")
-end
-
-teleportToStart()
-
--- ==========================================
--- 2.5 АВТО-ПРОКАЧКА ГРЯДКИ
+-- 2. АВТО-ПРОКАЧКА ГРЯДКИ
 -- ==========================================
 local function upgradeGarden()
     local upgradeCount = config.UPGRADE_COUNT or 0
@@ -366,7 +359,6 @@ local function getInventorySeeds()
     return seedsToPlant
 end
 
--- НОВАЯ ФУНКЦИЯ: Подсчет конкретных семян в инвентаре
 local function getInventorySeedCount(seedName)
     local totalCount = 0
     local backpack = LocalPlayer:FindFirstChild("Backpack")
@@ -398,7 +390,6 @@ local function getInventorySeedCount(seedName)
     return totalCount
 end
 
--- НОВАЯ ФУНКЦИЯ: Подсчет конкретных растений на грядке
 local function getPlantedCount(seedName)
     local count = 0
     local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
@@ -416,17 +407,6 @@ local function getPlantedCount(seedName)
         end
     end
     return count
-end
-
-local function getFruitCount()
-    local success, result = pcall(function()
-        return LocalPlayer.PlayerGui.BackpackGui.Backpack.Inventory.FruitInventory.Text
-    end)
-    if success and result then
-        local countStr = string.match(result, "(%d+)")
-        if countStr then return tonumber(countStr) end
-    end
-    return 0
 end
 
 local function getCoins()
@@ -496,7 +476,7 @@ local function smoothFlyTo(targetCFrame)
     alignPos.Position = targetPos
     alignPos.MaxForce = 99999999
     alignPos.MaxVelocity = WALK_SPEED
-    alignPos.Responsiveness = 20
+    alignPos.Responsiveness = 50 
     alignPos.Parent = hrp
 
     local alignOri = Instance.new("AlignOrientation")
@@ -504,12 +484,13 @@ local function smoothFlyTo(targetCFrame)
     alignOri.Mode = Enum.OrientationAlignmentMode.OneAttachment
     alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
     alignOri.MaxTorque = 99999999
-    alignOri.Responsiveness = 20
+    alignOri.Responsiveness = 50 
     alignOri.Parent = hrp
 
-    local timeout = tick() + (distance / WALK_SPEED) + 5
+    local timeout = tick() + (distance / WALK_SPEED) + 10 
 
     while (hrp.Position - targetPos).Magnitude > 5 and tick() < timeout do
+        alignPos.MaxVelocity = math.max(16, hum.WalkSpeed)
         alignOri.CFrame = CFrame.lookAt(hrp.Position, targetPos)
         task.wait(0.1)
     end
@@ -523,11 +504,12 @@ local function smoothFlyTo(targetCFrame)
     return true
 end
 
+-- ИСПРАВЛЕНО: Возврат на SpawnPoint вместо PRIM
 local function teleportToBaseSmooth()
     local plot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
-    local prim = plot and plot:FindFirstChild("Visual") and plot.Visual:FindFirstChild("PRIM")
-    if prim then
-        smoothFlyTo(prim.CFrame + Vector3.new(0, 3, 0))
+    local spawnPoint = plot and plot:FindFirstChild("SpawnPoint")
+    if spawnPoint then
+        smoothFlyTo(spawnPoint.CFrame + Vector3.new(0, 3, 0))
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChild("Humanoid")
         if hum then
@@ -578,7 +560,7 @@ end
 -- 5. ПАРАЛЛЕЛЬНЫЕ ПРОЦЕССЫ
 -- ==========================================
 
--- ПРОЦЕСС 1: ПОСАДКА (С УЧЕТОМ ЛИМИТА НА ГРЯДКЕ)
+-- ПРОЦЕСС 1: ПОСАДКА
 task.spawn(function()
     if not (config["Plant Seed"] and config["Plant Seed"]["Enable"]) then return end
     print("🌱 Авто-посадка запущена...")
@@ -586,7 +568,6 @@ task.spawn(function()
         local seeds = getInventorySeeds()
         for _, seedData in ipairs(seeds) do
             local maxPlants = plantList[seedData.name]
-            -- Если стоит лимит > 0
             if maxPlants and maxPlants > 0 and not dynamicBlacklist[seedData.name] then
                 local plantedCount = getPlantedCount(seedData.name)
                 local canPlant = maxPlants - plantedCount
@@ -625,7 +606,7 @@ task.spawn(function()
     end
 end)
 
--- ПРОЦЕСС 2: ПОКУПКА СЕМЯН (С УЧЕТОМ ЛИМИТА В ИНВЕНТАРЕ)
+-- ПРОЦЕСС 2: ПОКУПКА СЕМЯН
 task.spawn(function()
     if not (config["Buy Seed"] and config["Buy Seed"]["Enable"]) then return end
     local function getNormalShop()
@@ -677,24 +658,13 @@ end)
 -- ПРОЦЕСС 3: АВТО-ПРОДАЖА
 task.spawn(function()
     print("💰 Авто-продажа запущена...")
-    local lastSellTime = 0
     while true do
-        local fruitCount = getFruitCount()
-        local currentTime = os.clock()
-        if fruitCount >= 100 then
-            SellAll:Fire()
-            task.wait(0.5) 
-        elseif fruitCount > 0 and (currentTime - lastSellTime >= 5) then
-            SellAll:Fire()
-            lastSellTime = currentTime
-            task.wait(1)
-        else
-            task.wait(1)
-        end
+        pcall(function() SellAll:Fire() end)
+        task.wait(5)
     end
 end)
 
--- ПРОЦЕСС 4: ДИНАМИЧЕСКОЕ УДАЛЕНИЕ ПО БАЛАНСУ И ЛИМИТУ
+-- ПРОЦЕСС 4: ДИНАМИЧЕСКОЕ УДАЛЕНИЕ
 task.spawn(function()
     print("🗑️ Система удаления запущена...")
     local function equipShovel()
@@ -735,7 +705,6 @@ task.spawn(function()
         local myPlot = Workspace:FindFirstChild("Gardens") and Workspace.Gardens:FindFirstChild(MyPlotName)
         local plantsFolder = myPlot and myPlot:FindFirstChild("Plants")
         if plantsFolder then
-            -- Считаем все растения на грядке для проверки лимитов
             local plantedCounts = {}
             for _, plant in ipairs(plantsFolder:GetChildren()) do
                 local sName = plant:GetAttribute("SeedName")
@@ -757,17 +726,15 @@ task.spawn(function()
 
                 local shouldDelete = false
                 
-                -- Причина 1: Черный список по балансу
                 if seedName and dynamicBlacklist[seedName] then
                     shouldDelete = true
                 end
 
-                -- Причина 2: Превышен лимит посадки
                 if seedName and plantList[seedName] then
                     local limit = plantList[seedName]
                     if plantedCounts[seedName] > limit then
                         shouldDelete = true
-                        plantedCounts[seedName] = plantedCounts[seedName] - 1 -- Уменьшаем счетчик, чтобы не удалить все подряд
+                        plantedCounts[seedName] = plantedCounts[seedName] - 1
                     end
                 end
 
