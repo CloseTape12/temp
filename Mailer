@@ -5,6 +5,7 @@ local SEND_DELAY = 5                       -- задержка между отп
 -- ====================================================
 
 local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
@@ -19,6 +20,67 @@ local autoClaimEnabled = true
 -- Удаляем старый GUI, если скрипт запускается повторно
 local oldGui = player.PlayerGui:FindFirstChild("MailboxSenderGui")
 if oldGui then oldGui:Destroy() end
+
+local PlayerGui = player:WaitForChild("PlayerGui")
+
+-- ==========================================
+-- GUI УВЕДОМЛЕНИЙ (Правый нижний угол)
+-- ==========================================
+local NotifyGui = PlayerGui:FindFirstChild("MailNotifyGui")
+if not NotifyGui then
+    NotifyGui = Instance.new("ScreenGui")
+    NotifyGui.Name = "MailNotifyGui"
+    NotifyGui.ResetOnSpawn = false
+    NotifyGui.Parent = PlayerGui
+end
+
+local function showNotification(text)
+    task.spawn(function()
+        -- Считаем, сколько уже активных уведомлений, чтобы выстроить их стопкой
+        local activeNotifs = NotifyGui:GetChildren()
+        local yIndex = #activeNotifs
+        
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(0, 260, 0, 45)
+        frame.Position = UDim2.new(1, 280, 1, -55 - (yIndex * 50))
+        frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+        frame.BackgroundTransparency = 1
+        frame.BorderSizePixel = 0
+        frame.Parent = NotifyGui
+        
+        local textLabel = Instance.new("TextLabel")
+        textLabel.Size = UDim2.new(1, -15, 1, 0)
+        textLabel.Position = UDim2.new(0, 15, 0, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        textLabel.Font = Enum.Font.GothamBold
+        textLabel.TextSize = 13
+        textLabel.TextXAlignment = Enum.TextXAlignment.Left
+        textLabel.TextTransparency = 1
+        textLabel.Text = "📩 " .. text
+        textLabel.Parent = frame
+        
+        -- Анимация выезда
+        local tweenIn = TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(1, -280, 1, -55 - (yIndex * 50)), BackgroundTransparency = 0.2})
+        local tweenInText = TweenService:Create(textLabel, TweenInfo.new(0.3), {TextTransparency = 0})
+        
+        tweenIn:Play()
+        tweenInText:Play()
+        
+        -- Ждем 3 секунды
+        task.wait(3)
+        
+        -- Анимация уезда
+        local tweenOut = TweenService:Create(frame, TweenInfo.new(0.3), {Position = UDim2.new(1, 280, 1, -55 - (yIndex * 50)), BackgroundTransparency = 1})
+        local tweenOutText = TweenService:Create(textLabel, TweenInfo.new(0.3), {TextTransparency = 1})
+        
+        tweenOut:Play()
+        tweenOutText:Play()
+        
+        tweenOut.Completed:Wait()
+        frame:Destroy()
+    end)
+end
 
 -- ==========================================
 -- ЛОГИКА ОБРАБОТКИ ПРЕДМЕТОВ (ОТПРАВКА)
@@ -110,7 +172,7 @@ end
 -- ЛОГИКА СБОРА ПОЧТЫ
 -- ==========================================
 local function getRecieveFrame()
-    local gui = player:WaitForChild("PlayerGui"):FindFirstChild("MailboxUI")
+    local gui = PlayerGui:FindFirstChild("MailboxUI")
     if gui then
         local frame = gui:FindFirstChild("Frame")
         if frame then
@@ -133,10 +195,29 @@ local function claimMails()
         local mailId = string.match(item.Name, "Gift_(%d+:.+)")
 
         if mailId then
+            -- Читаем текст предмета из письма до его удаления
+            local itemInfo = "Подарок"
+            local longestText = ""
+            for _, desc in ipairs(item:GetDescendants()) do
+                if desc:IsA("TextLabel") and #desc.Text > #longestText then
+                    longestText = desc.Text
+                end
+            end
+            if longestText ~= "" then
+                itemInfo = longestText
+            end
+
             print("🚀 Собираю письмо: " .. mailId)
-            pcall(function()
+            
+            local success = pcall(function()
                 MailboxClaim:Fire(mailId)
             end)
+            
+            if success then
+                -- Показываем уведомление
+                showNotification(itemInfo)
+            end
+            
             pcall(function() item:Destroy() end)
             task.wait(0.5)
         end
@@ -144,16 +225,15 @@ local function claimMails()
 end
 
 -- ==========================================
--- СОЗДАНИЕ GUI
+-- СОЗДАНИЕ ОСНОВНОГО GUI
 -- ==========================================
-local PlayerGui = player:WaitForChild("PlayerGui")
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "MailboxSenderGui"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 350, 0, 555) -- Увеличили высоту под новую кнопку
+MainFrame.Size = UDim2.new(0, 350, 0, 555)
 MainFrame.Position = UDim2.new(0.5, -175, 0.5, -277)
 MainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 MainFrame.BorderSizePixel = 0
@@ -267,7 +347,6 @@ SendButton.Font = Enum.Font.GothamBold
 SendButton.TextSize = 14
 SendButton.Parent = MainFrame
 
--- НОВАЯ КНОПКА АВТО-СБОРА
 local AutoClaimButton = Instance.new("TextButton")
 AutoClaimButton.Size = UDim2.new(1, -20, 0, 35)
 AutoClaimButton.Position = UDim2.new(0, 10, 0, 495)
@@ -368,7 +447,6 @@ SendButton.MouseButton1Click:Connect(function()
     refreshItems()
 end)
 
--- Логика переключателя авто-сбора
 AutoClaimButton.MouseButton1Click:Connect(function()
     autoClaimEnabled = not autoClaimEnabled
     if autoClaimEnabled then
@@ -410,7 +488,6 @@ end
 -- ФОНОВЫЕ ПРОЦЕССЫ
 -- ==========================================
 
--- 1. Мониторинг инвентаря
 task.spawn(function()
     while true do
         task.wait(2)
@@ -422,7 +499,6 @@ task.spawn(function()
     end
 end)
 
--- 2. Авто-сбор почты
 task.spawn(function()
     print("✅ Авто-сборщик почты загружен. Ожидание...")
     while true do
@@ -435,7 +511,6 @@ task.spawn(function()
     end
 end)
 
--- Первичное заполнение списка
 lastInventoryHash = getInventoryHash()
 refreshItems()
 print("✅ GUI отправителя и сборщика почты загружен.")
