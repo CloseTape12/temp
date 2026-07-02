@@ -193,10 +193,10 @@ local PetRequestPurchaseSlot = Packet("PetRequestPurchaseSlot")
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ
 -- ==========================================
-local SPACING = 1
-local GRID_WIDTH = 40
-local GRID_DEPTH = 100
-local GRID_ROTATION = 270
+local SPACING = config.SPACING or 1
+local GRID_WIDTH = config.GRID_WIDTH or 13
+local GRID_DEPTH = config.GRID_DEPTH or 97
+local GRID_ROTATION = config.GRID_ROTATION or 0
 
 local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("SpawnPoint")
 local primCFrame = primPart.CFrame * CFrame.Angles(0, math.rad(GRID_ROTATION), 0)
@@ -389,36 +389,7 @@ local function parseFruitUUIDs(fruitName)
     return parts[2], parts[3] or ""
 end
 
--- ====== ФИЗИКА И ПОЛЁТ (РЕЖИМ ПРИЗРАКА) ======
-local originalCollisions = {}
-local function setGhostMode(isGhost)
-    local char = LocalPlayer.Character
-    if not char then return end
-    local hum = char:FindFirstChild("Humanoid")
-    if hum then hum.PlatformStand = isGhost end
-    
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            if isGhost then
-                originalCollisions[part] = {
-                    CanCollide = part.CanCollide,
-                    CanQuery = part.CanQuery,
-                    Massless = part.Massless
-                }
-                part.CanCollide = false
-                part.CanQuery = false
-                part.Massless = true
-            else
-                if originalCollisions[part] then
-                    part.CanCollide = originalCollisions[part].CanCollide
-                    part.CanQuery = originalCollisions[part].CanQuery
-                    part.Massless = originalCollisions[part].Massless
-                end
-            end
-        end
-    end
-end
-
+-- ====== ФИЗИКА И ПОЛЁТ (БЕЗ ПРИЗРАКА) ======
 local function smoothFlyTo(targetCFrame)
     local char = LocalPlayer.Character
     if not char then return false end
@@ -430,7 +401,8 @@ local function smoothFlyTo(targetCFrame)
     local distance = (hrp.Position - targetPos).Magnitude
     if distance <= 1.5 then return true end 
 
-    setGhostMode(true)
+    -- Отключаем стандартную физику, чтобы персонаж не падал и не сопротивлялся
+    hum.PlatformStand = true
     hum.AutoRotate = false
 
     local attachment = Instance.new("Attachment")
@@ -494,9 +466,10 @@ local function teleportToBaseSmooth()
         local char = LocalPlayer.Character
         local hum = char and char:FindFirstChild("Humanoid")
         if hum then
+            -- Возвращаем стандартную физику
+            hum.PlatformStand = false
             hum.AutoRotate = true
         end
-        setGhostMode(false)
     end
 end
 
