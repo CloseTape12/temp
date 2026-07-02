@@ -193,10 +193,10 @@ local PetRequestPurchaseSlot = Packet("PetRequestPurchaseSlot")
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ
 -- ==========================================
-local SPACING = 1
-local GRID_WIDTH = 40
-local GRID_DEPTH = 100
-local GRID_ROTATION = 270
+local SPACING = config.SPACING or 1
+local GRID_WIDTH = config.GRID_WIDTH or 13
+local GRID_DEPTH = config.GRID_DEPTH or 97
+local GRID_ROTATION = config.GRID_ROTATION or 0
 
 local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("SpawnPoint")
 local primCFrame = primPart.CFrame * CFrame.Angles(0, math.rad(GRID_ROTATION), 0)
@@ -419,7 +419,6 @@ local function setGhostMode(isGhost)
     end
 end
 
--- ====== ИДЕАЛЬНЫЙ ФИЗИЧЕСКИЙ ПОЛЁТ (С ДОПРОВЕРКОЙ И ДОВОДКОЙ) ======
 local function smoothFlyTo(targetCFrame)
     local char = LocalPlayer.Character
     if not char then return false end
@@ -469,10 +468,8 @@ local function smoothFlyTo(targetCFrame)
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
     
-    -- === НОВАЯ ДОПРОВЕРКА (ДОВОДКА) ===
     local remainingDist = (hrp.Position - targetPos).Magnitude
     if remainingDist > 2 then
-        print("⚠️ Физика не долетела (" .. math.floor(remainingDist) .. " ст). Дотягиваю вручную...")
         local startPos = hrp.CFrame
         local steps = math.ceil(remainingDist / 5)
         for i = 1, steps do
@@ -861,6 +858,7 @@ task.spawn(function()
     local function parsePrice(text)
         if not text then return math.huge end
         text = text:gsub("¢", "")
+        text = text:gsub(",", "") -- Удаляем запятые (например, из "1,000")
         local mult = 1
         if text:match("K$") then mult = 1000; text = text:gsub("K", "")
         elseif text:match("M$") then mult = 1000000; text = text:gsub("M", "") end
@@ -888,22 +886,26 @@ task.spawn(function()
         local currentPriceText = getCurrentPrice()
         
         if not currentPriceText then
-            print("🚜 Грядка уже максимального уровня!")
+            print("🚜 Грядка уже максимального уровня (нет таблички с ценой)!")
             break
         end
 
         local priceNum = parsePrice(currentPriceText)
         local coins = getCoins()
 
+        print(string.format("🚜 Проверка: Баланс %d | Цена %s (%d)", coins, currentPriceText, priceNum))
+
         if coins >= priceNum then
+            print("🚜 Денег хватает! Покупаю улучшение...")
             pcall(function() ExpandGarden:Fire() end)
             task.wait(1.5) 
             
             local newPriceText = getCurrentPrice()
             if newPriceText ~= currentPriceText then
                 upgradedTimes = upgradedTimes + 1
-                print(string.format("🚜 Грядка улучшена! (%d/%d)", upgradedTimes, upgradeCount))
+                print(string.format("✅ Грядка улучшена! (%d/%d)", upgradedTimes, upgradeCount))
             else
+                print("⚠️ Цена не изменилась после покупки. Возможно, не хватило валюты или сервер лагает.")
                 task.wait(5)
             end
         else
@@ -1000,6 +1002,7 @@ task.spawn(function()
         end
         task.wait(0.1)
     end
+end)
 
 -- ПРОЦЕСС 10: АВТО-ПОКУПКА СЛОТОВ ДЛЯ ПИТОМЦЕВ
 task.spawn(function()
@@ -1028,30 +1031,25 @@ task.spawn(function()
     while true do
         local currentMax = getMaxSlots()
         
-        -- Если окно петов закрыто, ждём
         if not currentMax then
             task.wait(10)
             continue
         end
 
-        -- Если достигли лимита, останавливаем цикл
         if currentMax >= maxSlots then
-            task.wait(30) -- Проверяем раз в полминуты на всякий случай
+            task.wait(30) 
             continue
         end
 
-        -- Пытаемся купить
         local beforeMax = currentMax
         pcall(function() PetRequestPurchaseSlot:Fire() end)
-        task.wait(1.5) -- Ждём обновления UI
+        task.wait(1.5) 
 
         local afterMax = getMaxSlots()
         if afterMax and afterMax > beforeMax then
             print("✅ Куплен слот для питомца! Новый максимум: " .. afterMax)
         else
-            -- Если слот не купился (не хватило валюты), ждём дольше
             task.wait(15)
         end
     end
-end)
 end)
