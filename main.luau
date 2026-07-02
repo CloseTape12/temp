@@ -188,6 +188,7 @@ local PurchaseGear = Packet("PurchaseGear")
 local WildPetTame = Packet("WildPetTame")
 local ToggleFollower = Packet("PetRequestToggleFollower")
 local ExpandGarden = Packet("ExpandGarden")
+local PetRequestPurchaseSlot = Packet("PetRequestPurchaseSlot")
 
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ
@@ -999,4 +1000,58 @@ task.spawn(function()
         end
         task.wait(0.1)
     end
+
+-- ПРОЦЕСС 10: АВТО-ПОКУПКА СЛОТОВ ДЛЯ ПИТОМЦЕВ
+task.spawn(function()
+    local maxSlots = config.PET_MAX_SLOTS or 6
+    if maxSlots <= 0 then return end
+
+    local function getMaxSlots()
+        local petList = LocalPlayer.PlayerGui:FindFirstChild("PetList")
+        if not petList then return nil end
+        local frame = petList:FindFirstChild("Frame")
+        if not frame then return nil end
+        local header = frame:FindFirstChild("Header")
+        if not header then return nil end
+        local textLabel = header:FindFirstChild("TextLabel")
+        if textLabel and textLabel:IsA("TextLabel") then
+            local current, max = string.match(textLabel.Text, "(%d+)/(%d+) Active")
+            if current and max then
+                return tonumber(max)
+            end
+        end
+        return nil
+    end
+
+    print("🐾 Авто-покупка слотов запущена. Цель: " .. maxSlots)
+
+    while true do
+        local currentMax = getMaxSlots()
+        
+        -- Если окно петов закрыто, ждём
+        if not currentMax then
+            task.wait(10)
+            continue
+        end
+
+        -- Если достигли лимита, останавливаем цикл
+        if currentMax >= maxSlots then
+            task.wait(30) -- Проверяем раз в полминуты на всякий случай
+            continue
+        end
+
+        -- Пытаемся купить
+        local beforeMax = currentMax
+        pcall(function() PetRequestPurchaseSlot:Fire() end)
+        task.wait(1.5) -- Ждём обновления UI
+
+        local afterMax = getMaxSlots()
+        if afterMax and afterMax > beforeMax then
+            print("✅ Куплен слот для питомца! Новый максимум: " .. afterMax)
+        else
+            -- Если слот не купился (не хватило валюты), ждём дольше
+            task.wait(15)
+        end
+    end
+end)
 end)
