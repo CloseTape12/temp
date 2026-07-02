@@ -193,10 +193,10 @@ local PetRequestPurchaseSlot = Packet("PetRequestPurchaseSlot")
 -- ==========================================
 -- 2. НАСТРОЙКА СЕТКИ
 -- ==========================================
-local SPACING = config.SPACING or 1
-local GRID_WIDTH = config.GRID_WIDTH or 13
-local GRID_DEPTH = config.GRID_DEPTH or 97
-local GRID_ROTATION = config.GRID_ROTATION or 0
+local SPACING = 1
+local GRID_WIDTH = 40
+local GRID_DEPTH = 100
+local GRID_ROTATION = 270
 
 local primPart = Workspace:WaitForChild("Gardens"):WaitForChild(MyPlotName):WaitForChild("SpawnPoint")
 local primCFrame = primPart.CFrame * CFrame.Angles(0, math.rad(GRID_ROTATION), 0)
