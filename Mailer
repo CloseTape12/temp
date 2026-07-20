@@ -1,11 +1,11 @@
 -- ==================== КОНФИГУРАЦИЯ ====================
-local DEFAULT_RECIPIENT_ID = 10460326170   -- ID по умолчанию
-local MAX_ITEMS = 9999999                  -- макс. предметов в одной посылке
-local SEND_DELAY = 5                       -- задержка между отправками (секунд)
+local DEFAULT_RECIPIENT_ID = 5681211913   -- ID по умолчанию
 -- ====================================================
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local HttpService = game:GetService("HttpService")
 local player = Players.LocalPlayer
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Packet = require(ReplicatedStorage:WaitForChild("SharedModules"):WaitForChild("Packet"))
@@ -14,17 +14,15 @@ local MailboxSendBatch = Packet("MailboxSendBatch")
 local MailboxOpenInbox = Packet("MailboxOpenInbox")
 local MailboxClaim = Packet("MailboxClaim")
 
--- Переменная состояния авто-сбора
 local autoClaimEnabled = true
 
--- Удаляем старый GUI, если скрипт запускается повторно
 local oldGui = player.PlayerGui:FindFirstChild("MailboxSenderGui")
 if oldGui then oldGui:Destroy() end
 
 local PlayerGui = player:WaitForChild("PlayerGui")
 
 -- ==========================================
--- GUI УВЕДОМЛЕНИЙ (Правый нижний угол)
+-- GUI УВЕДОМЛЕНИЙ
 -- ==========================================
 local NotifyGui = PlayerGui:FindFirstChild("MailNotifyGui")
 if not NotifyGui then
@@ -36,10 +34,8 @@ end
 
 local function showNotification(text)
     task.spawn(function()
-        -- Считаем, сколько уже активных уведомлений, чтобы выстроить их стопкой
         local activeNotifs = NotifyGui:GetChildren()
         local yIndex = #activeNotifs
-        
         local frame = Instance.new("Frame")
         frame.Size = UDim2.new(0, 260, 0, 45)
         frame.Position = UDim2.new(1, 280, 1, -55 - (yIndex * 50))
@@ -47,7 +43,6 @@ local function showNotification(text)
         frame.BackgroundTransparency = 1
         frame.BorderSizePixel = 0
         frame.Parent = NotifyGui
-        
         local textLabel = Instance.new("TextLabel")
         textLabel.Size = UDim2.new(1, -15, 1, 0)
         textLabel.Position = UDim2.new(0, 15, 0, 0)
@@ -59,42 +54,56 @@ local function showNotification(text)
         textLabel.TextTransparency = 1
         textLabel.Text = "📩 " .. text
         textLabel.Parent = frame
-        
-        -- Анимация выезда
         local tweenIn = TweenService:Create(frame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Position = UDim2.new(1, -280, 1, -55 - (yIndex * 50)), BackgroundTransparency = 0.2})
         local tweenInText = TweenService:Create(textLabel, TweenInfo.new(0.3), {TextTransparency = 0})
-        
         tweenIn:Play()
         tweenInText:Play()
-        
-        -- Ждем 3 секунды
         task.wait(3)
-        
-        -- Анимация уезда
         local tweenOut = TweenService:Create(frame, TweenInfo.new(0.3), {Position = UDim2.new(1, 280, 1, -55 - (yIndex * 50)), BackgroundTransparency = 1})
         local tweenOutText = TweenService:Create(textLabel, TweenInfo.new(0.3), {TextTransparency = 1})
-        
         tweenOut:Play()
         tweenOutText:Play()
-        
         tweenOut.Completed:Wait()
         frame:Destroy()
     end)
 end
 
 -- ==========================================
--- ЛОГИКА ОБРАБОТКИ ПРЕДМЕТОВ (ОТПРАВКА)
+-- УМНАЯ ЛОГИКА ПРЕДМЕТОВ И КАТЕГОРИЙ
 -- ==========================================
-local function pluralizeCategory(cat)
-    local map = {
-        Seed = "Seeds", Gear = "Gears", Fruit = "Fruits",
-        Seeds = "Seeds", Gears = "Gears", Fruits = "Fruits"
-    }
-    return map[cat] or cat
-end
-
 local function extractFruitName(fullName)
     return string.match(fullName, "^(.-) %[.*%]$") or fullName
+end
+
+local function capitalizeFirst(str)
+    return str:sub(1, 1):upper() .. str:sub(2)
+end
+
+local function getMailCategory(tool)
+    if tool:GetAttribute("PetId") then return "Pets" end
+    if tool:GetAttribute("SeedTool") then return "Seeds" end
+    if tool:GetAttribute("HarvestedFruit") or string.match(tool.Name, "%[.*%]") then return "Fruits" end
+    
+    local mainCat = tool:GetAttribute("MainCategory")
+    if mainCat == "Gear" or mainCat == "Gears" then
+        local specificAttr = "Sprinkler"
+        if tool:GetAttribute("WateringCan") then specificAttr = "WateringCan"
+        elseif tool:GetAttribute("Shovel") then specificAttr = "Shovel"
+        elseif tool:GetAttribute("Trowel") then specificAttr = "Trowel"
+        elseif tool:GetAttribute("Sign") then specificAttr = "Sign"
+        elseif tool:GetAttribute("Wheelbarrow") then specificAttr = "Wheelbarrow"
+        elseif tool:GetAttribute("Crowbar") then specificAttr = "Crowbar"
+        elseif tool:GetAttribute("Ladder") then specificAttr = "Ladder"
+        elseif tool:GetAttribute("Rake") then specificAttr = "Rake"
+        elseif tool:GetAttribute("FreezeRay") then specificAttr = "FreezeRay"
+        elseif tool:GetAttribute("PowerHose") then specificAttr = "PowerHose"
+        elseif tool:GetAttribute("StrawberrySniper") then specificAttr = "StrawberrySniper"
+        elseif tool:GetAttribute("GrapplingHook") then specificAttr = "GrapplingHook"
+        end
+        return specificAttr .. "s"
+    end
+    if mainCat then return capitalizeFirst(mainCat) .. "s" end
+    return "Gears"
 end
 
 local function getAllInventoryItems()
@@ -104,25 +113,31 @@ local function getAllInventoryItems()
 
     for _, tool in ipairs(backpack:GetChildren()) do
         if tool:IsA("Tool") then
-            local count = tonumber(tool:GetAttribute("Count")) or 0
-            local cat = tostring(tool:GetAttribute("MainCategory") or tool:GetAttribute("Category") or "")
-            local itemKey = tostring(tool:GetAttribute("SeedTool") or tool:GetAttribute("ItemKey") or "")
+            local count = tonumber(tool:GetAttribute("Count"))
+            if count == nil then count = 1 end 
+            
+            local cat = getMailCategory(tool)
+            local itemKey = ""
 
-            if cat == "" and string.match(tool.Name, "%[.*%]") then
-                cat = "Fruit"
+            if cat == "Pets" then
+                itemKey = tostring(tool:GetAttribute("PetId"))
                 count = 1
+            elseif cat == "Seeds" then
+                itemKey = tostring(tool:GetAttribute("SeedTool"))
+            elseif cat == "Fruits" then
                 itemKey = extractFruitName(tool.Name)
+                count = 1
+            else
+                itemKey = tool.Name
             end
 
-            if cat ~= "" and count > 0 then
-                if itemKey == "" then itemKey = tool.Name end
-                local finalCat = pluralizeCategory(cat)
-
+            if itemKey ~= "" and count > 0 then
                 if not groupedItems[itemKey] then
                     groupedItems[itemKey] = {
                         ItemKey = itemKey,
-                        Category = finalCat,
-                        TotalCount = 0
+                        Category = cat,
+                        TotalCount = 0,
+                        DisplayName = tool.Name
                     }
                 end
                 groupedItems[itemKey].TotalCount = groupedItems[itemKey].TotalCount + count
@@ -137,35 +152,11 @@ local function getInventoryHash()
     local keys = {}
     for k in pairs(items) do table.insert(keys, k) end
     table.sort(keys)
-    
     local hash = ""
     for _, key in ipairs(keys) do
         hash = hash .. key .. ":" .. items[key].TotalCount .. "|"
     end
     return hash
-end
-
-local function sendSelectedItem(recipientId, itemKey, amountToSend, category)
-    local batch = {}
-    local sent = 0
-    
-    for i = 1, amountToSend, MAX_ITEMS do
-        local chunkSize = math.min(MAX_ITEMS, amountToSend - sent)
-        table.insert(batch, {
-            ItemKey = itemKey,
-            Count = chunkSize,
-            Category = category
-        })
-        
-        MailboxSendBatch:Fire(recipientId, batch, "")
-        sent = sent + chunkSize
-        batch = {}
-        
-        if sent < amountToSend then
-            task.wait(SEND_DELAY)
-        end
-    end
-    return sent
 end
 
 -- ==========================================
@@ -175,9 +166,7 @@ local function getRecieveFrame()
     local gui = PlayerGui:FindFirstChild("MailboxUI")
     if gui then
         local frame = gui:FindFirstChild("Frame")
-        if frame then
-            return frame:FindFirstChild("RecieveFrame")
-        end
+        if frame then return frame:FindFirstChild("RecieveFrame") end
     end
     return nil
 end
@@ -185,39 +174,17 @@ end
 local function claimMails()
     local recieveFrame = getRecieveFrame()
     if not recieveFrame then return end
-
-    local children = recieveFrame:GetChildren()
-    if #children == 0 then return end
-
-    print("📬 Найдено писем в интерфейсе: " .. #children)
-
-    for _, item in ipairs(children) do
+    for _, item in ipairs(recieveFrame:GetChildren()) do
         local mailId = string.match(item.Name, "Gift_(%d+:.+)")
-
         if mailId then
-            -- Читаем текст предмета из письма до его удаления
             local itemInfo = "Подарок"
             local longestText = ""
             for _, desc in ipairs(item:GetDescendants()) do
-                if desc:IsA("TextLabel") and #desc.Text > #longestText then
-                    longestText = desc.Text
-                end
+                if desc:IsA("TextLabel") and #desc.Text > #longestText then longestText = desc.Text end
             end
-            if longestText ~= "" then
-                itemInfo = longestText
-            end
-
-            print("🚀 Собираю письмо: " .. mailId)
-            
-            local success = pcall(function()
-                MailboxClaim:Fire(mailId)
-            end)
-            
-            if success then
-                -- Показываем уведомление
-                showNotification(itemInfo)
-            end
-            
+            if longestText ~= "" then itemInfo = longestText end
+            local success = pcall(function() MailboxClaim:Fire(mailId) end)
+            if success then showNotification(itemInfo) end
             pcall(function() item:Destroy() end)
             task.wait(0.5)
         end
@@ -233,35 +200,43 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.Parent = PlayerGui
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 350, 0, 555)
-MainFrame.Position = UDim2.new(0.5, -175, 0.5, -277)
+MainFrame.Size = UDim2.new(0, 680, 0, 460) -- Шире для новой панели
+MainFrame.Position = UDim2.new(0.5, -340, 0.5, -230)
 MainFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 MainFrame.BorderSizePixel = 0
 MainFrame.Parent = ScreenGui
 
+-- Минимальный размер, чтобы панели не накладывались
+local sizeConstraint = Instance.new("UISizeConstraint")
+sizeConstraint.MinSize = Vector2.new(680, 400)
+sizeConstraint.Parent = MainFrame
+
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 40)
+Title.Size = UDim2.new(1, 0, 0, 35)
 Title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 Title.TextColor3 = Color3.fromRGB(255, 255, 255)
-Title.Text = "📦 Почта: Отправка и Сбор"
+Title.Text = "📦 Почта: Массовая Отправка и Поиск"
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 18
 Title.Parent = MainFrame
 
+-- === ЛЕВАЯ ПАНЕЛЬ (ПОЧТА) ===
+local LeftWidth = 420
+
 local IdLabel = Instance.new("TextLabel")
-IdLabel.Size = UDim2.new(1, -20, 0, 20)
-IdLabel.Position = UDim2.new(0, 10, 0, 50)
+IdLabel.Size = UDim2.new(0, LeftWidth - 20, 0, 15)
+IdLabel.Position = UDim2.new(0, 10, 0, 40)
 IdLabel.BackgroundTransparency = 1
 IdLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 IdLabel.Text = "ID получателя:"
 IdLabel.Font = Enum.Font.Gotham
-IdLabel.TextSize = 14
+IdLabel.TextSize = 12
 IdLabel.TextXAlignment = Enum.TextXAlignment.Left
 IdLabel.Parent = MainFrame
 
 local IdBox = Instance.new("TextBox")
-IdBox.Size = UDim2.new(1, -20, 0, 30)
-IdBox.Position = UDim2.new(0, 10, 0, 70)
+IdBox.Size = UDim2.new(0, LeftWidth - 20, 0, 25)
+IdBox.Position = UDim2.new(0, 10, 0, 55)
 IdBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 IdBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 IdBox.Text = tostring(DEFAULT_RECIPIENT_ID)
@@ -270,20 +245,9 @@ IdBox.TextSize = 14
 IdBox.ClearTextOnFocus = false
 IdBox.Parent = MainFrame
 
-local ItemsLabel = Instance.new("TextLabel")
-ItemsLabel.Size = UDim2.new(1, -20, 0, 20)
-ItemsLabel.Position = UDim2.new(0, 10, 0, 110)
-ItemsLabel.BackgroundTransparency = 1
-ItemsLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-ItemsLabel.Text = "Выберите предмет:"
-ItemsLabel.Font = Enum.Font.Gotham
-ItemsLabel.TextSize = 14
-ItemsLabel.TextXAlignment = Enum.TextXAlignment.Left
-ItemsLabel.Parent = MainFrame
-
 local SearchBox = Instance.new("TextBox")
-SearchBox.Size = UDim2.new(1, -20, 0, 30)
-SearchBox.Position = UDim2.new(0, 10, 0, 130)
+SearchBox.Size = UDim2.new(0, LeftWidth - 20, 0, 25)
+SearchBox.Position = UDim2.new(0, 10, 0, 85)
 SearchBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 SearchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 SearchBox.PlaceholderText = "🔍 Поиск предмета..."
@@ -293,31 +257,42 @@ SearchBox.TextSize = 14
 SearchBox.ClearTextOnFocus = false
 SearchBox.Parent = MainFrame
 
-local Scroller = Instance.new("ScrollingFrame")
-Scroller.Size = UDim2.new(1, -20, 0, 190)
-Scroller.Position = UDim2.new(0, 10, 0, 170)
-Scroller.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-Scroller.ScrollBarThickness = 4
-Scroller.Parent = MainFrame
+local InvScroller = Instance.new("ScrollingFrame")
+InvScroller.Size = UDim2.new(0, 200, 1, -255)
+InvScroller.Position = UDim2.new(0, 10, 0, 115)
+InvScroller.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+InvScroller.ScrollBarThickness = 4
+InvScroller.Parent = MainFrame
 
-local UIListLayout = Instance.new("UIListLayout")
-UIListLayout.Padding = UDim.new(0, 5)
-UIListLayout.Parent = Scroller
+local InvLayout = Instance.new("UIListLayout")
+InvLayout.Padding = UDim.new(0, 5)
+InvLayout.Parent = InvScroller
+
+local QueueScroller = Instance.new("ScrollingFrame")
+QueueScroller.Size = UDim2.new(0, 200, 1, -255)
+QueueScroller.Position = UDim2.new(0, 215, 0, 115)
+QueueScroller.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+QueueScroller.ScrollBarThickness = 4
+QueueScroller.Parent = MainFrame
+
+local QueueLayout = Instance.new("UIListLayout")
+QueueLayout.Padding = UDim.new(0, 5)
+QueueLayout.Parent = QueueScroller
 
 local AmountLabel = Instance.new("TextLabel")
-AmountLabel.Size = UDim2.new(1, -20, 0, 20)
-AmountLabel.Position = UDim2.new(0, 10, 0, 370)
+AmountLabel.Size = UDim2.new(0, LeftWidth - 20, 0, 15)
+AmountLabel.Position = UDim2.new(0, 10, 1, -140)
 AmountLabel.BackgroundTransparency = 1
 AmountLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
 AmountLabel.Text = "Количество:"
 AmountLabel.Font = Enum.Font.Gotham
-AmountLabel.TextSize = 14
+AmountLabel.TextSize = 12
 AmountLabel.TextXAlignment = Enum.TextXAlignment.Left
 AmountLabel.Parent = MainFrame
 
 local AmountBox = Instance.new("TextBox")
-AmountBox.Size = UDim2.new(1, -20, 0, 30)
-AmountBox.Position = UDim2.new(0, 10, 0, 390)
+AmountBox.Size = UDim2.new(0, 280, 0, 25)
+AmountBox.Position = UDim2.new(0, 10, 1, -125)
 AmountBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 AmountBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 AmountBox.Text = "0"
@@ -326,9 +301,19 @@ AmountBox.TextSize = 14
 AmountBox.ClearTextOnFocus = false
 AmountBox.Parent = MainFrame
 
+local AddQueueBtn = Instance.new("TextButton")
+AddQueueBtn.Size = UDim2.new(0, 125, 0, 25)
+AddQueueBtn.Position = UDim2.new(0, 295, 1, -125)
+AddQueueBtn.BackgroundColor3 = Color3.fromRGB(80, 150, 255)
+AddQueueBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AddQueueBtn.Text = "➕ В очередь"
+AddQueueBtn.Font = Enum.Font.GothamBold
+AddQueueBtn.TextSize = 12
+AddQueueBtn.Parent = MainFrame
+
 local StatusLabel = Instance.new("TextLabel")
-StatusLabel.Size = UDim2.new(1, -20, 0, 20)
-StatusLabel.Position = UDim2.new(0, 10, 0, 425)
+StatusLabel.Size = UDim2.new(0, LeftWidth - 20, 0, 20)
+StatusLabel.Position = UDim2.new(0, 10, 1, -95)
 StatusLabel.BackgroundTransparency = 1
 StatusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
 StatusLabel.Text = "Готово к работе"
@@ -337,34 +322,120 @@ StatusLabel.TextSize = 12
 StatusLabel.TextXAlignment = Enum.TextXAlignment.Left
 StatusLabel.Parent = MainFrame
 
-local SendButton = Instance.new("TextButton")
-SendButton.Size = UDim2.new(1, -20, 0, 35)
-SendButton.Position = UDim2.new(0, 10, 0, 450)
-SendButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-SendButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-SendButton.Text = "📤 Отправить"
-SendButton.Font = Enum.Font.GothamBold
-SendButton.TextSize = 14
-SendButton.Parent = MainFrame
+local SendAllBtn = Instance.new("TextButton")
+SendAllBtn.Size = UDim2.new(0, LeftWidth - 20, 0, 30)
+SendAllBtn.Position = UDim2.new(0, 10, 1, -75)
+SendAllBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+SendAllBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+SendAllBtn.Text = "📤 Отправить всю очередь"
+SendAllBtn.Font = Enum.Font.GothamBold
+SendAllBtn.TextSize = 14
+SendAllBtn.Parent = MainFrame
 
-local AutoClaimButton = Instance.new("TextButton")
-AutoClaimButton.Size = UDim2.new(1, -20, 0, 35)
-AutoClaimButton.Position = UDim2.new(0, 10, 0, 495)
-AutoClaimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-AutoClaimButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-AutoClaimButton.Text = "🟢 Авто-сбор почты: ВКЛ"
-AutoClaimButton.Font = Enum.Font.GothamBold
-AutoClaimButton.TextSize = 14
-AutoClaimButton.Parent = MainFrame
+local AutoClaimBtn = Instance.new("TextButton")
+AutoClaimBtn.Size = UDim2.new(0, LeftWidth - 20, 0, 30)
+AutoClaimBtn.Position = UDim2.new(0, 10, 1, -40)
+AutoClaimBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+AutoClaimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+AutoClaimBtn.Text = "🟢 Авто-сбор почты: ВКЛ"
+AutoClaimBtn.Font = Enum.Font.GothamBold
+AutoClaimBtn.TextSize = 14
+AutoClaimBtn.Parent = MainFrame
+
+-- Разделитель
+local Divider = Instance.new("Frame")
+Divider.Size = UDim2.new(0, 1, 1, -50)
+Divider.Position = UDim2.new(0, LeftWidth + 5, 0, 40)
+Divider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+Divider.BorderSizePixel = 0
+Divider.Parent = MainFrame
+
+-- === ПРАВАЯ ПАНЕЛЬ (ПОИСК ИГРОКОВ) ===
+local RightWidth = 240
+local RightOffset = LeftWidth + 15
+
+local PlayerSearchLabel = Instance.new("TextLabel")
+PlayerSearchLabel.Size = UDim2.new(0, RightWidth, 0, 20)
+PlayerSearchLabel.Position = UDim2.new(0, RightOffset, 0, 40)
+PlayerSearchLabel.BackgroundTransparency = 1
+PlayerSearchLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+PlayerSearchLabel.Text = "Поиск игрока по нику:"
+PlayerSearchLabel.Font = Enum.Font.Gotham
+PlayerSearchLabel.TextSize = 12
+PlayerSearchLabel.TextXAlignment = Enum.TextXAlignment.Left
+PlayerSearchLabel.Parent = MainFrame
+
+local PlayerSearchBox = Instance.new("TextBox")
+PlayerSearchBox.Size = UDim2.new(0, RightWidth - 35, 0, 25)
+PlayerSearchBox.Position = UDim2.new(0, RightOffset, 0, 60)
+PlayerSearchBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+PlayerSearchBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+PlayerSearchBox.PlaceholderText = "Введите ник..."
+PlayerSearchBox.Text = ""
+PlayerSearchBox.Font = Enum.Font.Gotham
+PlayerSearchBox.TextSize = 14
+PlayerSearchBox.ClearTextOnFocus = false
+PlayerSearchBox.Parent = MainFrame
+
+local PlayerSearchBtn = Instance.new("TextButton")
+PlayerSearchBtn.Size = UDim2.new(0, 30, 0, 25)
+PlayerSearchBtn.Position = UDim2.new(0, RightOffset + RightWidth - 30, 0, 60)
+PlayerSearchBtn.BackgroundColor3 = Color3.fromRGB(80, 150, 255)
+PlayerSearchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+PlayerSearchBtn.Text = "🔍"
+PlayerSearchBtn.Font = Enum.Font.GothamBold
+PlayerSearchBtn.TextSize = 14
+PlayerSearchBtn.Parent = MainFrame
+
+local PlayerResultsScroller = Instance.new("ScrollingFrame")
+PlayerResultsScroller.Size = UDim2.new(0, RightWidth, 1, -115)
+PlayerResultsScroller.Position = UDim2.new(0, RightOffset, 0, 95)
+PlayerResultsScroller.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+PlayerResultsScroller.ScrollBarThickness = 4
+PlayerResultsScroller.Parent = MainFrame
+
+local PlayerResultsLayout = Instance.new("UIListLayout")
+PlayerResultsLayout.Padding = UDim.new(0, 5)
+PlayerResultsLayout.Parent = PlayerResultsScroller
+
+local SearchStatusLabel = Instance.new("TextLabel")
+SearchStatusLabel.Size = UDim2.new(0, RightWidth, 0, 20)
+SearchStatusLabel.Position = UDim2.new(0, RightOffset, 1, -40)
+SearchStatusLabel.BackgroundTransparency = 1
+SearchStatusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+SearchStatusLabel.Text = ""
+SearchStatusLabel.Font = Enum.Font.Gotham
+SearchStatusLabel.TextSize = 12
+SearchStatusLabel.TextXAlignment = Enum.TextXAlignment.Left
+SearchStatusLabel.Parent = MainFrame
+
+-- Уголок для изменения размера
+local ResizeHandle = Instance.new("TextButton")
+ResizeHandle.Size = UDim2.new(0, 20, 0, 20)
+ResizeHandle.Position = UDim2.new(1, -20, 1, -20)
+ResizeHandle.BackgroundTransparency = 1
+ResizeHandle.Text = "↘"
+ResizeHandle.TextColor3 = Color3.fromRGB(150, 150, 150)
+ResizeHandle.TextSize = 18
+ResizeHandle.Parent = MainFrame
+ResizeHandle.ZIndex = 10
 
 -- ==========================================
--- ЛОГИКА GUI
+-- ЛОГИКА ОЧЕРЕДИ И ОТПРАВКИ
 -- ==========================================
-local selectedItemData = nil
+local selectedInvItem = nil
+local sendQueue = {}
 local lastInventoryHash = ""
 
-local function refreshItems()
-    for _, child in ipairs(Scroller:GetChildren()) do
+local function getQueuedCount(itemKey)
+    for _, qItem in ipairs(sendQueue) do
+        if qItem.ItemKey == itemKey then return qItem.Count end
+    end
+    return 0
+end
+
+local function refreshInventoryUI()
+    for _, child in ipairs(InvScroller:GetChildren()) do
         if child:IsA("TextButton") then child:Destroy() end
     end
     
@@ -372,95 +443,237 @@ local function refreshItems()
     local searchText = string.lower(SearchBox.Text or "")
     
     for itemKey, data in pairs(items) do
-        if searchText == "" or string.find(string.lower(itemKey), searchText, 1, true) then
+        if searchText == "" or string.find(string.lower(data.DisplayName), searchText, 1, true) then
             local btn = Instance.new("TextButton")
             btn.Size = UDim2.new(1, -10, 0, 30)
             btn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
             btn.TextColor3 = Color3.fromRGB(255, 255, 255)
             btn.Font = Enum.Font.Gotham
-            btn.TextSize = 12
-            btn.Text = string.format("%s (x%d) [%s]", itemKey, data.TotalCount, data.Category)
-            btn.Parent = Scroller
+            btn.TextSize = 11
             
-            if selectedItemData and selectedItemData.ItemKey == itemKey then
+            local remaining = data.TotalCount - getQueuedCount(itemKey)
+            btn.Text = string.format("%s (%d)", data.DisplayName, remaining)
+            btn.Parent = InvScroller
+            
+            if selectedInvItem and selectedInvItem.ItemKey == itemKey then
                 btn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
             end
             
             btn.MouseButton1Click:Connect(function()
-                selectedItemData = data
-                for _, child in ipairs(Scroller:GetChildren()) do
-                    if child:IsA("TextButton") then child.BackgroundColor3 = Color3.fromRGB(70, 70, 70) end
-                end
-                btn.BackgroundColor3 = Color3.fromRGB(0, 120, 200)
-                AmountBox.Text = tostring(data.TotalCount)
-                StatusLabel.Text = "Выбран: " .. itemKey
-                StatusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+                selectedInvItem = data
+                AmountBox.Text = tostring(data.TotalCount - getQueuedCount(itemKey))
+                refreshInventoryUI()
             end)
         end
     end
-    
-    Scroller.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y + 10)
+    InvScroller.CanvasSize = UDim2.new(0, 0, 0, InvLayout.AbsoluteContentSize.Y + 10)
 end
 
-SearchBox:GetPropertyChangedSignal("Text"):Connect(function()
-    refreshItems()
+local function refreshQueueUI()
+    for _, child in ipairs(QueueScroller:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+    
+    for _, qItem in ipairs(sendQueue) do
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -10, 0, 30)
+        btn.BackgroundColor3 = Color3.fromRGB(90, 50, 50)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Font = Enum.Font.Gotham
+        btn.TextSize = 11
+        btn.Text = string.format("❌ %s x%d", qItem.DisplayName, qItem.Count)
+        btn.Parent = QueueScroller
+        
+        btn.MouseButton1Click:Connect(function()
+            for i, item in ipairs(sendQueue) do
+                if item.ItemKey == qItem.ItemKey then
+                    table.remove(sendQueue, i)
+                    break
+                end
+            end
+            refreshQueueUI()
+            refreshInventoryUI()
+        end)
+    end
+    QueueScroller.CanvasSize = UDim2.new(0, 0, 0, QueueLayout.AbsoluteContentSize.Y + 10)
+end
+
+AddQueueBtn.MouseButton1Click:Connect(function()
+    if not selectedInvItem then
+        StatusLabel.Text = "❌ Выберите предмет в инвентаре!"
+        return
+    end
+    
+    local amount = tonumber(AmountBox.Text)
+    if not amount or amount <= 0 then
+        StatusLabel.Text = "❌ Введите количество!"
+        return
+    end
+    
+    local maxAvailable = selectedInvItem.TotalCount - getQueuedCount(selectedInvItem.ItemKey)
+    if amount > maxAvailable then amount = maxAvailable end
+    
+    if amount <= 0 then
+        StatusLabel.Text = "❌ Нет больше предметов для добавления!"
+        return
+    end
+    
+    local found = false
+    for _, qItem in ipairs(sendQueue) do
+        if qItem.ItemKey == selectedInvItem.ItemKey then
+            qItem.Count = qItem.Count + amount
+            found = true
+            break
+        end
+    end
+    
+    if not found then
+        table.insert(sendQueue, {
+            ItemKey = selectedInvItem.ItemKey,
+            Category = selectedInvItem.Category,
+            Count = amount,
+            DisplayName = selectedInvItem.DisplayName
+        })
+    end
+    
+    StatusLabel.Text = string.format("✅ Добавлено в очередь: %s (%d)", selectedInvItem.DisplayName, amount)
+    refreshQueueUI()
+    refreshInventoryUI()
 end)
 
-SendButton.MouseButton1Click:Connect(function()
+SendAllBtn.MouseButton1Click:Connect(function()
     local recipientId = tonumber(IdBox.Text)
-    local amount = tonumber(AmountBox.Text)
-    
     if not recipientId then
         StatusLabel.Text = "❌ Ошибка: Неверный ID!"
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
         return
     end
     
-    if not selectedItemData then
-        StatusLabel.Text = "❌ Ошибка: Выберите предмет!"
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    if #sendQueue == 0 then
+        StatusLabel.Text = "❌ Очередь пуста!"
         return
     end
     
-    if not amount or amount <= 0 then
-        StatusLabel.Text = "❌ Ошибка: Введите количество!"
-        StatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        return
+    StatusLabel.Text = "⏳ Отправка пакета..."
+    
+    local batch = {}
+    for _, qItem in ipairs(sendQueue) do
+        table.insert(batch, {
+            ItemKey = qItem.ItemKey,
+            Count = qItem.Count,
+            Category = qItem.Category
+        })
     end
     
-    if amount > selectedItemData.TotalCount then
-        amount = selectedItemData.TotalCount
-        AmountBox.Text = tostring(amount)
+    local success, err = pcall(function()
+        MailboxSendBatch:Fire(recipientId, batch, "")
+    end)
+    
+    if success then
+        StatusLabel.Text = string.format("🎉 Отправлено %d типов предметов!", #batch)
+        sendQueue = {}
+        refreshQueueUI()
+        refreshInventoryUI()
+    else
+        StatusLabel.Text = "❌ Ошибка отправки: " .. tostring(err)
     end
-    
-    StatusLabel.Text = "⏳ Отправка..."
-    StatusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
-    
-    local sent = sendSelectedItem(recipientId, selectedItemData.ItemKey, amount, selectedItemData.Category)
-    
-    StatusLabel.Text = string.format("✅ Отправлено: %d шт.", sent)
-    StatusLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
-    
-    task.wait(1)
-    selectedItemData = nil
-    AmountBox.Text = "0"
-    refreshItems()
 end)
 
-AutoClaimButton.MouseButton1Click:Connect(function()
+AutoClaimBtn.MouseButton1Click:Connect(function()
     autoClaimEnabled = not autoClaimEnabled
     if autoClaimEnabled then
-        AutoClaimButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        AutoClaimButton.Text = "🟢 Авто-сбор почты: ВКЛ"
+        AutoClaimBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+        AutoClaimBtn.Text = "🟢 Авто-сбор почты: ВКЛ"
     else
-        AutoClaimButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
-        AutoClaimButton.Text = "🔴 Авто-сбор почты: ВЫКЛ"
+        AutoClaimBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        AutoClaimBtn.Text = "🔴 Авто-сбор почты: ВЫКЛ"
     end
 end)
 
--- Делаем окно перетаскиваемым
+-- ==========================================
+-- ЛОГИКА ПОИСКА ИГРОКОВ
+-- ==========================================
+local function performPlayerSearch()
+    local keyword = PlayerSearchBox.Text
+    if keyword == "" then return end
+    
+    SearchStatusLabel.Text = "⏳ Поиск..."
+    
+    -- Очищаем старые результаты
+    for _, child in ipairs(PlayerResultsScroller:GetChildren()) do
+        if child:IsA("TextButton") then child:Destroy() end
+    end
+
+    -- Если ввели ID, просто подставляем его
+    if tonumber(keyword) then
+        IdBox.Text = keyword
+        SearchStatusLabel.Text = "✅ ID подставлен!"
+        return
+    end
+
+    local foundUsers = {}
+
+    -- Пробуем сделать HTTP запрос к API Roblox (через RoProxy)
+    local url = "https://users.roproxy.com/v1/users/search?keyword=" .. HttpService:UrlEncode(keyword) .. "&limit=10"
+    local success, response = pcall(function()
+        return HttpService:GetAsync(url)
+    end)
+
+    if success and response then
+        local okDecode, data = pcall(function() return HttpService:JSONDecode(response) end)
+        if okDecode and data and data.data then
+            for _, user in ipairs(data.data) do
+                table.insert(foundUsers, {Name = user.name, Id = user.id})
+            end
+        end
+    end
+
+    -- Если API поиска не сработало, пробуем точное совпадение
+    if #foundUsers == 0 then
+        local okExact, userId = pcall(function()
+            return Players:GetUserIdFromNameAsync(keyword)
+        end)
+        if okExact and userId then
+            table.insert(foundUsers, {Name = keyword, Id = userId})
+        end
+    end
+
+    -- Заполняем список
+    if #foundUsers > 0 then
+        SearchStatusLabel.Text = "✅ Найдено: " .. #foundUsers
+        for _, u in ipairs(foundUsers) do
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, -10, 0, 40)
+            btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            btn.Font = Enum.Font.Gotham
+            btn.TextSize = 12
+            btn.TextWrapped = true
+            btn.Text = u.Name .. "\n[ID: " .. u.Id .. "]"
+            btn.Parent = PlayerResultsScroller
+
+            btn.MouseButton1Click:Connect(function()
+                IdBox.Text = tostring(u.Id)
+                SearchStatusLabel.Text = "✅ Выбран: " .. u.Name
+            end)
+        end
+        PlayerResultsScroller.CanvasSize = UDim2.new(0, 0, 0, PlayerResultsLayout.AbsoluteContentSize.Y + 10)
+    else
+        SearchStatusLabel.Text = "❌ Игрок не найден"
+    end
+end
+
+PlayerSearchBtn.MouseButton1Click:Connect(performPlayerSearch)
+PlayerSearchBox.FocusLost:Connect(function(enterPressed)
+    if enterPressed then performPlayerSearch() end
+end)
+
+-- ==========================================
+-- ПЕРЕТАСКИВАНИЕ И ИЗМЕНЕНИЕ РАЗМЕРА
+-- ==========================================
 do
     local dragging, dragInput, dragStart, startPos
+    local resizing, resizeStart, startSize
+
     Title.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
@@ -476,31 +689,44 @@ do
             dragInput = input
         end
     end)
-    game:GetService("UserInputService").InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+
+    ResizeHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            resizing = true
+            resizeStart = input.Position
+            startSize = MainFrame.Size
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then resizing = false end
+            end)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            if dragging and dragInput == input then
+                local delta = input.Position - dragStart
+                MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            elseif resizing then
+                local delta = input.Position - resizeStart
+                MainFrame.Size = UDim2.new(startSize.X.Scale, startSize.X.Offset + delta.X, startSize.Y.Scale, startSize.Y.Offset + delta.Y)
+            end
         end
     end)
 end
 
--- ==========================================
--- ФОНОВЫЕ ПРОЦЕССЫ
--- ==========================================
-
+-- Фоновые процессы
 task.spawn(function()
     while true do
         task.wait(2)
         local currentHash = getInventoryHash()
         if currentHash ~= lastInventoryHash then
             lastInventoryHash = currentHash
-            refreshItems()
+            refreshInventoryUI()
         end
     end
 end)
 
 task.spawn(function()
-    print("✅ Авто-сборщик почты загружен. Ожидание...")
     while true do
         if autoClaimEnabled then
             pcall(function() MailboxOpenInbox:Fire() end)
@@ -512,5 +738,6 @@ task.spawn(function()
 end)
 
 lastInventoryHash = getInventoryHash()
-refreshItems()
-print("✅ GUI отправителя и сборщика почты загружен.")
+refreshInventoryUI()
+refreshQueueUI()
+print("✅ Массовый отправщик почты с поиском игроков загружен!")
