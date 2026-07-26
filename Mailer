@@ -612,13 +612,24 @@ local function performPlayerSearch()
 
     local foundUsers = {}
 
-    -- Пробуем сделать HTTP запрос к API Roblox (через RoProxy)
-    local url = "https://users.roproxy.com/v1/users/search?keyword=" .. HttpService:UrlEncode(keyword) .. "&limit=10"
-    local success, response = pcall(function()
-        return HttpService:GetAsync(url)
-    end)
+    -- Универсальная функция HTTP-запроса
+    local function makeHttpRequest(url)
+        local reqFunc = (syn and syn.request) or http_request or request
+        if reqFunc then
+            local ok, res = pcall(reqFunc, { Url = url, Method = "GET" })
+            if ok and res and res.Body then return res.Body end
+        end
+        local ok2, res2 = pcall(function() return HttpService:GetAsync(url) end)
+        if ok2 then return res2 end
+        return nil
+    end
 
-    if success and response then
+    -- Делаем запрос к API Roblox
+    local url = "https://users.roproxy.com/v1/users/search?keyword=" .. HttpService:UrlEncode(keyword) .. "&limit=10"
+    local response = makeHttpRequest(url)
+
+    if response then
+        SearchStatusLabel.Text = "⏳ Обработка..."
         local okDecode, data = pcall(function() return HttpService:JSONDecode(response) end)
         if okDecode and data and data.data then
             for _, user in ipairs(data.data) do
@@ -627,45 +638,77 @@ local function performPlayerSearch()
         end
     end
 
-    -- Если API поиска не сработало, пробуем точное совпадение
+    -- Запасной точный поиск
     if #foundUsers == 0 then
-        local okExact, userId = pcall(function()
-            return Players:GetUserIdFromNameAsync(keyword)
-        end)
+        SearchStatusLabel.Text = "⏳ Точный поиск (без HTTP)..."
+        local okExact, userId = pcall(function() return Players:GetUserIdFromNameAsync(keyword) end)
         if okExact and userId then
             table.insert(foundUsers, {Name = keyword, Id = userId})
         end
     end
 
-    -- Заполняем список
+    -- Заполняем список найденных с аватарками
     if #foundUsers > 0 then
         SearchStatusLabel.Text = "✅ Найдено: " .. #foundUsers
+        
         for _, u in ipairs(foundUsers) do
+            -- Создаем кнопку высотой 45 пикселей (чтобы влезла аватарка)
             local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(1, -10, 0, 40)
+            btn.Size = UDim2.new(1, -10, 0, 45)
             btn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-            btn.Font = Enum.Font.Gotham
-            btn.TextSize = 12
-            btn.TextWrapped = true
-            btn.Text = u.Name .. "\n[ID: " .. u.Id .. "]"
+            btn.Text = "" -- Текст будет внутри отдельного TextLabel, чтобы не накладываться на фото
             btn.Parent = PlayerResultsScroller
 
+            -- 1. Создаем рамку для аватарки (кружок)
+            local img = Instance.new("ImageLabel")
+            img.Size = UDim2.new(0, 35, 0, 35)
+            img.Position = UDim2.new(0, 5, 0.5, -17.5)
+            img.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+            img.Parent = btn
+            
+            -- Делаем её круглой
+            local imgCorner = Instance.new("UICorner")
+            imgCorner.CornerRadius = UDim.new(1, 0)
+            imgCorner.Parent = img
+
+            -- 2. Создаем текст (Ник и ID) справа от аватарки
+            local txt = Instance.new("TextLabel")
+            txt.Size = UDim2.new(1, -50, 1, 0)
+            txt.Position = UDim2.new(0, 45, 0, 0)
+            txt.BackgroundTransparency = 1
+            txt.TextColor3 = Color3.fromRGB(255, 255, 255)
+            txt.Font = Enum.Font.Gotham
+            txt.TextSize = 12
+            txt.TextWrapped = true
+            txt.TextXAlignment = Enum.TextXAlignment.Left
+            txt.TextYAlignment = Enum.TextYAlignment.Center
+            txt.Text = u.Name .. "\n[ID: " .. u.Id .. "]"
+            txt.Parent = btn
+
+            -- 3. Асинхронно подгружаем аватарку
+            task.spawn(function()
+                local okThumb, thumbContent = pcall(function()
+                    -- HeadAndShoulders — именно то, что ты просил (голова и плечи)
+                    return Players:GetUserThumbnailAsync(u.Id, Enum.ThumbnailSize.Size420x420, Enum.ThumbnailType.HeadAndShoulders)
+                end)
+                if okThumb and thumbContent then
+                    img.Image = thumbContent
+                end
+            end)
+
+            -- При клике берем ID
             btn.MouseButton1Click:Connect(function()
                 IdBox.Text = tostring(u.Id)
                 SearchStatusLabel.Text = "✅ Выбран: " .. u.Name
             end)
         end
+        
+        -- Обновляем размер скроллера
         PlayerResultsScroller.CanvasSize = UDim2.new(0, 0, 0, PlayerResultsLayout.AbsoluteContentSize.Y + 10)
     else
         SearchStatusLabel.Text = "❌ Игрок не найден"
     end
 end
-
-PlayerSearchBtn.MouseButton1Click:Connect(performPlayerSearch)
-PlayerSearchBox.FocusLost:Connect(function(enterPressed)
-    if enterPressed then performPlayerSearch() end
-end)
 
 -- ==========================================
 -- ПЕРЕТАСКИВАНИЕ И ИЗМЕНЕНИЕ РАЗМЕРА
