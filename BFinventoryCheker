@@ -1,0 +1,60 @@
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+-- Подключаем контроллер инвентаря и конфиг предметов напрямую
+local InventoryController = require(ReplicatedStorage:WaitForChild("Controllers"):WaitForChild("UI"):WaitForChild("Inventory"))
+local ItemConfig = require(ReplicatedStorage:WaitForChild("ItemConfig"))
+
+print("⏳ Ожидание инициализации инвентаря...")
+
+local tiles = nil
+local attempts = 0
+
+-- Ждем загрузки данных в память
+while task.wait(1) do
+    attempts += 1
+    local ok, result = pcall(function() return InventoryController:GetTiles() end)
+    if ok and result and #result > 0 then 
+        tiles = result 
+        break 
+    end
+    if attempts > 30 then print("❌ Таймаут загрузки."); return end
+end
+
+print("✅ Данные получены! Найдено предметов всего: " .. #tiles)
+
+local fruitsFound = {}
+
+for _, tile in ipairs(tiles) do
+    local ok, itemData = pcall(function() return ItemConfig.match(tile.ItemId):unwrap() end)
+    
+    if ok and itemData and itemData.Index then
+        local debugLabel = itemData.Index.DebugLabel or ""
+        
+        -- Фильтр: ищем ТОЛЬКО Blox Fruits (они имеют тег [PhysicalMoveset-...])
+        if debugLabel:find("PhysicalMoveset") then
+            -- Очищаем имя: "Creation-Creation [PhysicalMoveset-1426]" -> "Creation"
+            local cleanName = debugLabel:match("^([^%-]+)")
+            if cleanName then
+                table.insert(fruitsFound, cleanName)
+            end
+        end
+    end
+end
+
+-- Вывод и копирование
+print("\n=== ФРУКТЫ В ИНВЕНТАРЕ ===")
+local result = ""
+for i, f in ipairs(fruitsFound) do
+    print(string.format("%d. %s", i, f))
+    result = result .. f .. "\n"
+end
+
+if #fruitsFound > 0 then
+    local clip = setclipboard or toclipboard or (Clipboard and Clipboard.set) or writeclipboard
+    if clip then
+        clip(result)
+        print("\n[УСПЕХ] Список скопирован в буфер обмена! Нажмите Ctrl+V.")
+    end
+else
+    print("Фрукты не найдены.")
+end
